@@ -21,3 +21,5 @@ Tous les services sont publiés sur `localhost` par le réseau ingress de Swarm.
 
 514/udp, 1514-1515, 3010, 6445, 8025, 8080, 8443, 8880, 9200, 9910, 9943, 55000 (Wazuh, WUD,
 Portainer, Harbor, k3s… lancés hors du labo).
+
+<!-- essai de la file de fusion par lots, PR H -->
