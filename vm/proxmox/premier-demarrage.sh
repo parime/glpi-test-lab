@@ -37,7 +37,7 @@ EOF
     ifreload -a
 fi
 
-for i in $(seq 1 30); do getent hosts download.proxmox.com >/dev/null && break; sleep 5; done
+for _ in $(seq 1 30); do getent hosts download.proxmox.com >/dev/null && break; sleep 5; done
 
 for f in /etc/apt/sources.list.d/pve-enterprise.sources /etc/apt/sources.list.d/ceph.sources; do
     if [ -f "$f" ] && ! grep -q '^Enabled: no' "$f"; then echo 'Enabled: no' >>"$f"; fi
