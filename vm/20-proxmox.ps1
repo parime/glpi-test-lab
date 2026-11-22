@@ -208,14 +208,46 @@ if (-not $SansIso) {
     $aEnvoyer = @($config.Iso.VirtIO.Fichier, $config.Iso.PfSense.Fichier, $config.Iso.WindowsServer2025.Fichier, $config.Iso.Windows11Entreprise.Fichier)
     $repere = Join-Path $dossierIso 'ubuntu-server.txt'
     if (Test-Path $repere) { $aEnvoyer += (Get-Content $repere -TotalCount 1).Trim() }
+    # Source et somme connues pour chaque ISO : Proxmox la télécharge lui-même (download-url, somme
+    # SHA-256 vérifiée par Proxmox), bien plus vite qu'un envoi depuis l'hôte ; sinon, envoi (upload).
+    $sources = @{}
+    $releve = Join-Path $dossierIso 'SHA256SUMS.lab'
+    $sommesReleves = @{}
+    if (Test-Path $releve) { foreach ($l in Get-Content $releve) { if ($l -match '^([0-9a-f]{64})\s+\*?(.+)$') { $sommesReleves[$Matches[2]] = $Matches[1] } } }
+    foreach ($cle in 'VirtIO', 'WindowsServer2025', 'Windows11Entreprise') {
+        $iso = $config.Iso[$cle]
+        $somme = $iso.Sha256; if (-not $somme) { $somme = $sommesReleves[$iso.Fichier] }
+        if ($somme) { $sources[$iso.Fichier] = @{ Url = $iso.Url; Somme = $somme } }
+    }
+    if (Test-Path $repere) {
+        $nomUbuntu = (Get-Content $repere -TotalCount 1).Trim()
+        foreach ($l in ((Get-LabTexteWeb -Url ($config.Iso.UbuntuServer.Base + 'SHA256SUMS')) -split "`n")) {
+            if ($l -match '^([0-9a-f]{64}) \*?(\S+)$' -and $Matches[2] -eq $nomUbuntu) { $sources[$nomUbuntu] = @{ Url = $config.Iso.UbuntuServer.Base + $nomUbuntu; Somme = $Matches[1] } }
+        }
+    }
     foreach ($nom in $aEnvoyer) {
         $chemin = Join-Path $dossierIso $nom
         if ($presentes -contains $nom) { Write-LabOk "$nom déjà présente."; continue }
-        if (-not (Test-Path $chemin)) { Write-LabAvert "$nom absente sur l'hôte (10-telecharger-iso.ps1)."; continue }
-        Write-LabInfo "Envoi de $nom ($([math]::Round((Get-Item $chemin).Length / 1GB, 1)) Go)..."
-        $upid = Invoke-LabPve -Config $config -Methode POST -Chemin "/nodes/$noeud/storage/$($px.StockageIso)/upload" -Parametres @{ content = 'iso' } -Fichiers @{ filename = $chemin }
-        Wait-LabPveTache -Config $config -Upid $upid -Minutes 30
-        Write-LabOk "$nom envoyée."
+        $fait = $false
+        if ($sources.ContainsKey($nom)) {
+            Write-LabInfo "Téléchargement de $nom par Proxmox (somme SHA-256 vérifiée par Proxmox)..."
+            try {
+                $upid = Invoke-LabPve -Config $config -Methode POST -Chemin "/nodes/$noeud/storage/$($px.StockageIso)/download-url" -Parametres @{
+                    content = 'iso'; filename = $nom; url = $sources[$nom].Url; checksum = $sources[$nom].Somme; 'checksum-algorithm' = 'sha256'
+                }
+                Wait-LabPveTache -Config $config -Upid $upid -Minutes 60
+                $fait = $true
+            } catch {
+                Write-LabAvert "Téléchargement par Proxmox impossible ($($_.Exception.Message)) : envoi depuis l'hôte."
+            }
+        }
+        if (-not $fait) {
+            if (-not (Test-Path $chemin)) { Write-LabAvert "$nom absente sur l'hôte (10-telecharger-iso.ps1)."; continue }
+            Write-LabInfo "Envoi de $nom ($([math]::Round((Get-Item $chemin).Length / 1GB, 1)) Go)..."
+            $upid = Invoke-LabPve -Config $config -Methode POST -Chemin "/nodes/$noeud/storage/$($px.StockageIso)/upload" -Parametres @{ content = 'iso' } -Fichiers @{ filename = $chemin }
+            Wait-LabPveTache -Config $config -Upid $upid -Minutes 90
+        }
+        Write-LabOk "$nom dans Proxmox."
     }
 }
 
