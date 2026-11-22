@@ -107,11 +107,24 @@ if ($aRefaire) {
     Write-LabFichierUtf8 -Chemin $fichierAnswer -Texte $answer
     Write-LabFichierUtf8 -Chemin $fichierPremier -Texte $premier
     if (Test-Path $isoAuto) { Remove-Item $isoAuto -Force }
+    # L'ISO officielle est téléchargée DANS le conteneur et vérifiée avec SHA256SUMS : un dossier
+    # Windows monté dans un conteneur est trop lent pour 1,7 Go. Le résultat sort par « docker cp ».
+    $base = $config.Iso.Proxmox.Base
+    $somme = $null
+    foreach ($ligne in ((Get-LabTexteWeb -Url ($base + 'SHA256SUMS')) -split "`n")) {
+        if ($ligne -match '^([0-9a-f]{64})\s+\*?(\S+)$' -and $Matches[2] -eq $px.Iso) { $somme = $Matches[1] }
+    }
+    if (-not $somme) { throw "$($px.Iso) absent de $($base)SHA256SUMS." }
     Write-LabInfo 'Préparation dans un conteneur debian:trixie (outil officiel proxmox-auto-install-assistant)...'
     $scripts = Join-Path $PSScriptRoot 'proxmox'
-    & docker run --rm -v "${dossierIso}:/iso:ro" -v "${dossierPx}:/travail" -v "${scripts}:/scripts:ro" debian:trixie `
-        bash /scripts/preparer-iso.sh $px.Iso 'proxmox-ve-auto.iso'
-    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $isoAuto)) { throw 'La préparation de l''ISO automatique a échoué (voir ci-dessus).' }
+    $conteneur = 'glpi-test-lab-pve-iso'
+    try { $ErrorActionPreference = 'Continue'; & docker rm -f $conteneur 2>&1 | Out-Null } finally { $ErrorActionPreference = 'Stop' }
+    & docker run --name $conteneur -v "${dossierPx}:/travail:ro" -v "${scripts}:/scripts:ro" debian:trixie `
+        bash /scripts/preparer-iso.sh $px.Iso $base $somme
+    $code = $LASTEXITCODE
+    if ($code -eq 0) { & docker cp "${conteneur}:/sortie/proxmox-ve-auto.iso" $isoAuto; $code = $LASTEXITCODE }
+    try { $ErrorActionPreference = 'Continue'; & docker rm -f $conteneur 2>&1 | Out-Null } finally { $ErrorActionPreference = 'Stop' }
+    if ($code -ne 0 -or -not (Test-Path $isoAuto)) { throw 'La préparation de l''ISO automatique a échoué (voir ci-dessus).' }
     Set-Content -Path $empreinte -Value $nouvelleEmpreinte -Encoding ASCII
     Write-LabOk "ISO préparée : $isoAuto"
 } else {
