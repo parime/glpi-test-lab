@@ -136,7 +136,8 @@
             NomMachine    = 'DC01'
             Role          = 'ad'
             Iso           = 'WindowsServer2025'
-            # Index de l'image dans sources\install.wim (2 = Standard Evaluation, expérience de bureau).
+            # Index de l'image dans sources\install.wim, relevé le 22/11/2026 dans l'ISO 26100.32230 :
+            # 1 Standard Core, 2 Standard (expérience de bureau), 3 Datacenter Core, 4 Datacenter.
             # Vérifiable avec : dism /Get-WimInfo /WimFile:<lecteur>:\sources\install.wim
             IndexImage    = 2
             Ordre         = 2
