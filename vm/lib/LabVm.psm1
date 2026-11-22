@@ -353,7 +353,8 @@ function Set-LabSecret {
 # Référence : https://pve.proxmox.com/pve-docs/api-viewer/ ; jetons d'API (en-tête
 # « Authorization: PVEAPIToken=USER@REALM!ID=SECRET ») : https://pve.proxmox.com/wiki/Proxmox_VE_API
 # Le certificat de Proxmox est vérifié avec son autorité (pve-root-ca.pem, lue en SSH à
-# l'installation) ; le nom du nœud est résolu vers son adresse LAN (option --resolve de curl).
+# l'installation) ; --ssl-no-revoke : cette autorité privée ne publie pas de liste de révocation,
+# que le curl de Windows (Schannel) cherche sinon à vérifier ; le nom du nœud est résolu vers son adresse LAN (option --resolve de curl).
 
 function Get-LabPveContexte {
     param([hashtable]$Config)
@@ -384,7 +385,7 @@ function Invoke-LabPve {
     )
     $ctx = Get-LabPveContexte -Config $Config
     $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
-    $arguments = @('--silent', '--show-error', '--cacert', $ctx.Ca, '--resolve', $ctx.Resolve, '-H', "@$($ctx.Entete)", '-X', $Methode)
+    $arguments = @('--silent', '--show-error', '--ssl-no-revoke', '--cacert', $ctx.Ca, '--resolve', $ctx.Resolve, '-H', "@$($ctx.Entete)", '-X', $Methode)
     $url = $ctx.Base + $Chemin
     if ($Fichiers.Count -gt 0) {
         foreach ($cle in $Parametres.Keys) { $arguments += @('--form-string', "$cle=$($Parametres[$cle])") }
@@ -459,7 +460,7 @@ function Invoke-LabPveAgent {
     # L'API attend « command » répété : curl le transmet avec plusieurs --data-urlencode.
     $ctx = Get-LabPveContexte -Config $Config
     $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
-    $arguments = @('--silent', '--show-error', '--fail', '--cacert', $ctx.Ca, '--resolve', $ctx.Resolve, '-H', "@$($ctx.Entete)", '-X', 'POST')
+    $arguments = @('--silent', '--show-error', '--fail', '--ssl-no-revoke', '--cacert', $ctx.Ca, '--resolve', $ctx.Resolve, '-H', "@$($ctx.Entete)", '-X', 'POST')
     foreach ($morceau in $Commande) { $arguments += @('--data-urlencode', "command=$morceau") }
     if ($Entree) { $arguments += @('--data-urlencode', "input-data=$Entree") }
     $arguments += "$($ctx.Base)/nodes/$noeud/qemu/$VmId/agent/exec"

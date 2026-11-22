@@ -171,6 +171,10 @@ if (-not $installe) {
     $limite = (Get-Date).AddMinutes(45)
     while ((Get-Date) -lt $limite -and -not $installe) {
         Start-Sleep -Seconds 20
+        # Windows ne redemande une adresse DHCP que toutes les 5 minutes : demande immédiate (sans élévation).
+        if (-not (Get-NetIPAddress -InterfaceIndex $carteHote.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -eq $reseau.IpHote })) {
+            & ipconfig.exe /renew "vEthernet ($($reseau.CommutateurLan))" | Out-Null
+        }
         $installe = (Invoke-PxSsh -Commande 'test -f /root/lab-premier-demarrage.ok').Code -eq 0
     }
     if (-not $installe) {

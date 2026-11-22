@@ -6,7 +6,7 @@ Proxmox** (jeton d'API, jamais le mot de passe root dans le dépôt).
 
 | VM | Système | Rôle dans les tests | Adresse | vCPU | Mémoire | Disque |
 |---|---|---|---|---|---|---|
-| `lab-proxmox` (Hyper-V) | Proxmox VE 9.2 | hôte des VM ; servira aussi au lot #15 (Proxmox VE à tester par les plugins) | 10.77.10.5 | 4 | 8 Go (statique) | 120 Go dynamique |
+| `lab-proxmox` (Hyper-V) | Proxmox VE 9.1 | hôte des VM ; servira aussi au lot #15 (Proxmox VE à tester par les plugins) | 10.77.10.5 | 4 | 8 Go (statique) | 120 Go dynamique |
 | `lab-pfsense` (101) | pfSense CE 2.7.2 | pare-feu, réseau segmenté, futur équipement réseau de la cartographie (#8) | LAN 10.77.10.1 | 1 | 1 Go | 8 Go |
 | `lab-ad` (102, DC01) | Windows Server 2025 **Server Core**, évaluation 180 jours | contrôleur de `lab.local`, LDAP de GLPI, GPO de GLPI Agent, revues d'accès de GRC | 10.77.10.10 | 2 | 2 Go | 32 Go |
 | `lab-win11` (103, PC-WIN11) | Windows 11 Entreprise, évaluation 90 jours | poste joint au domaine, agent déployé par GPO | 10.77.10.20 | 2 | 2,5 Go (4 Go pendant l'installation) | 64 Go |
@@ -113,7 +113,7 @@ de « Default Switch » ; cela ne gêne pas le labo, mais ce réseau de test peu
 
 | Fichier | Source officielle | Vérification |
 |---|---|---|
-| Proxmox VE 9.2-1 | [enterprise.proxmox.com/iso](https://enterprise.proxmox.com/iso/) | `SHA256SUMS` officiel |
+| Proxmox VE 9.1-1 (téléchargée par `20-proxmox.ps1` dans le conteneur de préparation) | [enterprise.proxmox.com/iso](https://enterprise.proxmox.com/iso/) | `SHA256SUMS` officiel |
 | Pilotes VirtIO 0.1.302 (projet Fedora) | [fedorapeople.org](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.302-1/) | pas de somme publiée pour l'ISO : relevée au premier téléchargement |
 | Windows Server 2025, évaluation 180 jours (en-US) | [Centre d'évaluation](https://www.microsoft.com/evalcenter/download-windows-server-2025) | pas de somme publiée : relevée (`iso\SHA256SUMS.lab`) puis contrôlée |
 | Windows 11 Entreprise, évaluation 90 jours (en-US) | [Centre d'évaluation](https://www.microsoft.com/evalcenter/download-windows-11-enterprise) | idem |
@@ -131,6 +131,14 @@ versions suivantes que par un installeur en ligne ([pfsense.org/download](https:
 la 2.7.2 hors ligne se met à jour ensuite depuis son interface.
 
 ## Étape 2 : Proxmox VE
+
+**Version 9.1-1 et non 9.2-1** : dans une VM Hyper-V de génération 2, l'installeur 9.2-1 ne trouve
+pas son propre lecteur DVD (« searching for block device containing the ISO » sans fin), constaté
+ici le 22/11/2026 et signalé sur le
+[forum Proxmox](https://forum.proxmox.com/threads/proxmox-ve-9-2-1-iso-not-installing-in-nested-hyper-v.183899/).
+La 9.1-1 s'installe ; Proxmox peut ensuite passer en 9.2 par `apt full-upgrade` (dépôt
+`pve-no-subscription` configuré au premier démarrage). `vm\outils\capture-console.ps1` capture
+l'écran de la VM Hyper-V pendant l'installation, sans ouvrir de console.
 
 ```powershell
 .\vm\20-proxmox.ps1
