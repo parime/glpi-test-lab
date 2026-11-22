@@ -20,7 +20,12 @@
     # https://learn.microsoft.com/virtualization/hyper-v-on-windows/user-guide/enable-nested-virtualization
     Proxmox = @{
         NomVm        = 'lab-proxmox'
-        Iso          = 'proxmox-ve_9.2-1.iso'
+        # 9.1-1 et non 9.2-1 : l'installeur 9.2-1 ne trouve pas son propre lecteur DVD dans une VM
+        # Hyper-V de génération 2 (« searching for block device containing the ISO » sans fin),
+        # constaté ici le 22/11/2026 et signalé sur le forum Proxmox :
+        # https://forum.proxmox.com/threads/proxmox-ve-9-2-1-iso-not-installing-in-nested-hyper-v.183899/
+        # La 9.1-1 s'installe ; la mise à jour vers 9.2 se fait ensuite par apt (dépôt no-subscription).
+        Iso          = 'proxmox-ve_9.1-1.iso'
         Processeurs  = 4
         MemoireMo    = 8192       # statique (exigée par l'imbrication) : 1 Go pour Proxmox + VM invitées
         DisqueGo     = 120        # VHDX dynamique : disques des VM (allocation fine) et ISO
@@ -98,7 +103,7 @@
     Iso = @{
         # https://www.proxmox.com/en/downloads (ISO et SHA256SUMS : https://enterprise.proxmox.com/iso/)
         Proxmox = @{
-            Fichier = 'proxmox-ve_9.2-1.iso'
+            Fichier = 'proxmox-ve_9.1-1.iso'
             Base    = 'https://enterprise.proxmox.com/iso/'
         }
         # Pilotes VirtIO pour Windows, projet Fedora (gratuit) :

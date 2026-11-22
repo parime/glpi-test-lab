@@ -82,8 +82,6 @@ Write-LabInfo "Carte de l'hôte sur le LAN : $($carteHote.Name), MAC $macHote (r
 
 # --- 2. ISO d'installation automatique ------------------------------------------------------------
 Write-LabEtape 'ISO d''installation automatique de Proxmox VE'
-$isoSource = Join-Path $dossierIso $px.Iso
-if (-not (Test-Path $isoSource)) { throw "ISO absente : $isoSource. Lancez vm\10-telecharger-iso.ps1 -Seulement Proxmox." }
 $longueur = $reseau.Prefixe.Split('/')[1]
 $answer = Get-LabTexteModele -Nom '..\proxmox\answer.toml' -Valeurs @{
     CLAVIER = $px.Clavier; PAYS = $px.Pays; FQDN = $px.Fqdn; DOMAINE = $config.Domaine.Nom; FUSEAU = $px.Fuseau
