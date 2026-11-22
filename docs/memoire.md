@@ -19,18 +19,21 @@ Mémoire résidente, en Mio (GLPI + MariaDB) :
 | `glpi` | les 3 instances | 740 | 950 (deux avec GRC) |
 
 À retenir pour planifier : **compter 0,4 Gio par instance GLPI en usage**, 0,3 Gio au repos.
-Les plafonds (1 Gio + 512 Mio par instance) ne sont jamais approchés par ces usages ; ils protègent
-le poste d'une fuite pendant des tests PHPUnit.
+Ces mesures ont été prises avec un tampon InnoDB de 128 Mio ; il est maintenant de 64 Mio
+(`performance_schema` coupé), ce qui retire environ 60 Mio par base.
 
 Pour comparaison, une instance g12 de glpi-test-env (base de démonstration chargée, plusieurs
 plugins) occupe de 0,6 à 1 Gio.
 
 ## Plafonds
 
-| Conteneur | Plafond (`.env`) | Remarque |
-|---|---|---|
-| GLPI | `LAB_GLPI_MEMORY=1G` | Apache + PHP ; monte pendant `plugin:install` et les tests PHPUnit |
-| MariaDB | `LAB_DB_MEMORY=512M` | tampon InnoDB `LAB_DB_BUFFER_POOL=128M`, suffisant pour une base de test |
+Au plus juste, d'après les mesures ci-dessus (environ deux fois l'usage mesuré, pour
+`plugin:install` et les tests PHPUnit) :
+
+| Conteneur | Limite mémoire (`.env`) | Limite CPU | Réservation | Remarque |
+|---|---|---|---|---|
+| GLPI | `LAB_GLPI_MEMORY=768M` | 1,5 | 128 Mio | Apache + PHP |
+| MariaDB | `LAB_DB_MEMORY=320M` | 1 | 128 Mio | tampon InnoDB `LAB_DB_BUFFER_POOL=64M`, 50 connexions |
 
 Un plafond atteint fait redémarrer le conteneur par Swarm : relever le plafond plutôt que de le
 retirer.
