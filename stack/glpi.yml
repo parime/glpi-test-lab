@@ -1,0 +1,115 @@
+# Brique « glpi » : UNE instance GLPI et sa base MariaDB.
+# La commande `lab` déploie ce fichier une fois par instance déclarée dans instances.txt, sous le
+# nom de pile lab-<instance> (par exemple lab-glpi12-a). Ne pas le déployer à la main : `lab` fournit
+# les variables ci-dessous (instance, version, port, dossiers de données, mots de passe de .env).
+#
+# Données : trois volumes Docker par instance (base, /var/glpi, plugins), dans le disque de Docker
+# Desktop (F:\Docker). La base n'est JAMAIS sur un dossier de Windows : MariaDB y corrompt ses tables
+# système (erreurs « Can't sync file », index Aria corrompu) et ne redémarre plus après un arrêt
+# brutal de Docker Desktop. Sauvegardes lisibles depuis Windows : `lab backup` (F:\Dev\glpi-test-lab-data).
+#
+# Taille au plus juste (mesures dans docs/memoire.md) : limites et réservations deploy.resources.
+#
+# Compatibilité avec les scripts de glpi-test-env : le conteneur GLPI porte l'étiquette
+# lab.instance=<instance>, ce qui permet de le retrouver (`lab container <instance>`), et le dossier
+# des plugins est un volume, pour qu'un redémarrage de la tâche par Swarm ne perde pas les plugins
+# déployés par deploy-g12.sh.
+
+services:
+  db:
+    image: ${LAB_MARIADB_IMAGE:-mariadb:11.8.9}
+    command:
+      - --innodb-use-native-aio=0
+      - --innodb-buffer-pool-size=${LAB_DB_BUFFER_POOL:-64M}
+      - --innodb-log-file-size=48M
+      - --performance-schema=OFF
+      - --max-connections=50
+      # Base de test sur disque dur : journal écrit à chaque transaction mais synchronisé une fois par
+      # seconde (survit à un arrêt de MariaDB ou de Docker, perd au plus une seconde si le PC s'éteint).
+      - --innodb-flush-log-at-trx-commit=2
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MARIADB_ROOT_PASSWORD: "${LAB_DB_ROOT_PASSWORD:?mot de passe absent, lancer ./lab init}"
+      MARIADB_DATABASE: glpi
+      MARIADB_USER: glpi
+      MARIADB_PASSWORD: "${LAB_DB_PASSWORD:?mot de passe absent, lancer ./lab init}"
+    volumes:
+      - db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      # Swarm relance un conteneur « unhealthy » : sur un disque lent, la création de la base peut
+      # durer plusieurs minutes, et une relance en plein milieu laisserait une base sans comptes.
+      start_period: 30m
+    labels:
+      lab.instance: ${LAB_INSTANCE:?instance absente}
+      lab.role: db
+    networks: [default]
+    # Laisse à MariaDB le temps de s'arrêter proprement (lab down, redémarrage de Docker Desktop).
+    stop_grace_period: 1m
+    deploy:
+      labels:
+        lab.brique: glpi
+      restart_policy:
+        condition: any
+        delay: 5s
+      resources:
+        limits:
+          memory: ${LAB_DB_MEMORY:-320M}
+          cpus: "1"
+        reservations:
+          memory: 128M
+
+  glpi:
+    image: glpi/glpi:${LAB_GLPI_VERSION:?version absente}
+    environment:
+      TIMEZONE: Europe/Paris
+      GLPI_DB_HOST: db
+      GLPI_DB_PORT: "3306"
+      GLPI_DB_NAME: glpi
+      GLPI_DB_USER: glpi
+      GLPI_DB_PASSWORD: ${LAB_DB_PASSWORD}
+    volumes:
+      - var:/var/glpi
+      - plugins:/var/www/glpi/plugins
+    ports:
+      - target: 80
+        published: ${LAB_PORT:?port absent}
+        protocol: tcp
+        mode: ingress
+    labels:
+      lab.instance: ${LAB_INSTANCE}
+      lab.role: glpi
+      lab.glpi-version: ${LAB_GLPI_VERSION}
+    networks:
+      default: {}
+      lab-net:
+        aliases:
+          - ${LAB_INSTANCE}
+    stop_grace_period: 30s
+    deploy:
+      labels:
+        lab.brique: glpi
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: ${LAB_GLPI_MEMORY:-768M}
+          cpus: "1.5"
+        reservations:
+          memory: 128M
+
+volumes:
+  db:
+  var:
+  plugins:
+
+networks:
+  default:
+    driver: overlay
+  lab-net:
+    external: true
