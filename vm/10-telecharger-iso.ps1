@@ -15,10 +15,13 @@
     - Ubuntu Server LTS : SHA256SUMS officiel de releases.ubuntu.com.
     - pfSense CE : fichier .sha256 officiel du miroir Netgate (somme du .gz), puis décompression.
     - GLPI Agent : fichier .sha256 officiel de la publication GitHub et somme épinglée dans vms.psd1.
+    - Proxmox VE : SHA256SUMS officiel de enterprise.proxmox.com/iso.
+    - Pilotes VirtIO pour Windows (projet Fedora) : pas de somme publiée pour l'ISO (le fichier
+      CHECKSUM ne couvre que les RPM) : somme relevée au premier téléchargement, comme pour Microsoft.
 
 .PARAMETER Seulement
     Limite le téléchargement à certaines entrées : WindowsServer2025, Windows11Entreprise,
-    UbuntuServer, PfSense, GlpiAgent.
+    UbuntuServer, PfSense, GlpiAgent, Proxmox, VirtIO.
 
 .PARAMETER SansAttente
     Ne pas attendre un dépôt manuel : signaler seulement le fichier manquant.
@@ -30,7 +33,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('WindowsServer2025', 'Windows11Entreprise', 'UbuntuServer', 'PfSense', 'GlpiAgent')]
+    [ValidateSet('WindowsServer2025', 'Windows11Entreprise', 'UbuntuServer', 'PfSense', 'GlpiAgent', 'Proxmox', 'VirtIO')]
     [string[]]$Seulement,
     [switch]$SansAttente
 )
@@ -86,7 +89,8 @@ function Get-IsoMicrosoft {
     param([string]$Cle)
     $iso = $config.Iso[$Cle]
     $chemin = Join-Path $dossierIso $iso.Fichier
-    Write-LabEtape "$Cle ($($iso.EvaluationJours) jours d'évaluation) : $($iso.Fichier)"
+    $duree = ''; if ($iso.ContainsKey('EvaluationJours')) { $duree = " ($($iso.EvaluationJours) jours d'évaluation)" }
+    Write-LabEtape "$Cle$duree : $($iso.Fichier)"
     if (-not (Test-Path $chemin)) {
         try {
             Invoke-LabTelechargement -Url $iso.Url -Destination $chemin
@@ -98,9 +102,9 @@ function Get-IsoMicrosoft {
         }
     }
     # Un ISO fait plusieurs Go : une petite taille signale une page HTML reçue à la place.
-    if ((Get-Item $chemin).Length -lt 1GB) {
+    if ((Get-Item $chemin).Length -lt 100MB) {
         Remove-Item $chemin -Force
-        throw "$($iso.Fichier) fait moins de 1 Go : ce n'est pas une ISO (page d'erreur ?). Fichier supprimé, relancez."
+        throw "$($iso.Fichier) fait moins de 100 Mo : ce n'est pas une ISO (page d'erreur ?). Fichier supprimé, relancez."
     }
     $somme = Get-LabSha256 -Fichier $chemin
     $attendue = $iso.Sha256
@@ -112,7 +116,7 @@ function Get-IsoMicrosoft {
         Write-LabOk "SHA-256 vérifiée : $somme"
     } else {
         Save-SommeRelevee -Fichier $iso.Fichier -Somme $somme
-        Write-LabOk "SHA-256 relevée (Microsoft n'en publie pas pour les évaluations) : $somme"
+        Write-LabOk "SHA-256 relevée (l'éditeur n'en publie pas pour ce fichier) : $somme"
     }
     $bilan.Add("$Cle : $chemin")
 }
@@ -199,6 +203,26 @@ function Get-GlpiAgent {
     }
 }
 
+function Get-IsoProxmox {
+    $iso = $config.Iso.Proxmox
+    $chemin = Join-Path $dossierIso $iso.Fichier
+    Write-LabEtape "Proxmox VE : $($iso.Fichier)"
+    $sommes = Get-LabTexteWeb -Url ($iso.Base + 'SHA256SUMS')
+    $attendue = $null
+    foreach ($ligne in ($sommes -split "`n")) { if ($ligne -match '^([0-9a-f]{64})\s+\*?(\S+)$' -and $Matches[2] -eq $iso.Fichier) { $attendue = $Matches[1] } }
+    if (-not $attendue) { throw "$($iso.Fichier) absent de $($iso.Base)SHA256SUMS." }
+    $verifiee = $false
+    if (Test-Path $chemin) { if ((Get-LabSha256 -Fichier $chemin) -eq $attendue) { $verifiee = $true } else { Remove-Item $chemin -Force } }
+    if (-not $verifiee) {
+        Invoke-LabTelechargement -Url ($iso.Base + $iso.Fichier) -Destination $chemin
+        if ((Get-LabSha256 -Fichier $chemin) -ne $attendue) { throw "Somme SHA-256 invalide pour $($iso.Fichier)." }
+    }
+    Write-LabOk "SHA-256 vérifiée (SHA256SUMS officiel) : $attendue"
+    $bilan.Add("Proxmox : $chemin")
+}
+
+if (Test-Demande 'Proxmox') { Get-IsoProxmox }
+if (Test-Demande 'VirtIO') { Get-IsoMicrosoft -Cle 'VirtIO' }
 if (Test-Demande 'GlpiAgent') { Get-GlpiAgent }
 if (Test-Demande 'UbuntuServer') { Get-IsoUbuntu }
 if (Test-Demande 'PfSense') { Get-IsoPfSense }

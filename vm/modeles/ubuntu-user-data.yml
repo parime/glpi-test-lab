@@ -1,11 +1,11 @@
 #cloud-config
 # Installation sans intervention d'Ubuntu Server (autoinstall de Subiquity), fournie par un support
-# NoCloud d'étiquette CIDATA que vm\20-creer-vm.ps1 génère à partir de ce modèle.
+# NoCloud d'étiquette CIDATA que vm\30-creer-vm.ps1 génère à partir de ce modèle.
 # Références :
 # - Démarrage rapide et support CIDATA : https://canonical-subiquity.readthedocs-hosted.com/en/latest/howto/autoinstall-quickstart.html
 # - Référence des clés : https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html
-# - « linux-azure » recommandé par Microsoft pour les services d'intégration Hyper-V (adresse IP
-#   visible depuis l'hôte, KVP) : https://learn.microsoft.com/windows-server/virtualization/hyper-v/supported-ubuntu-virtual-machines-on-hyper-v
+# - Agent invité QEMU (qemu-guest-agent), pour que Proxmox voie l'adresse et arrête proprement la VM :
+#   https://pve.proxmox.com/wiki/Qemu-guest-agent
 # Le compte labadmin est créé au premier démarrage (section user-data, qui remplace identity).
 autoinstall:
   version: 1
@@ -20,7 +20,7 @@ autoinstall:
     ethernets:
       lan:
         match:
-          driver: hv_netvsc
+          driver: virtio_net
         addresses: [{{IP}}/{{LONGUEUR}}]
         routes:
           - to: default
@@ -37,7 +37,7 @@ autoinstall:
       - {{CLE_SSH}}
     allow-pw: false
   packages:
-    - linux-azure
+    - qemu-guest-agent
   late-commands:
     - mkdir -p /run/lab-cidata /target/opt/lab
     - sh -c 'mountpoint -q /run/lab-cidata || mount -o ro /dev/disk/by-label/CIDATA /run/lab-cidata'
@@ -59,5 +59,5 @@ autoinstall:
           - {{CLE_SSH}}
     runcmd:
       - [bash, /opt/lab/glpi-agent-setup.sh]
-  # Arrêt en fin d'installation : 20-creer-vm.ps1 le détecte, retire les supports et redémarre.
+  # Arrêt en fin d'installation : 30-creer-vm.ps1 le détecte, retire les supports et redémarre.
   shutdown: poweroff
