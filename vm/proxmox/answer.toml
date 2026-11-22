@@ -1,0 +1,39 @@
+# Fichier de réponses de l'installation automatique de Proxmox VE (modèle).
+# vm\20-proxmox.ps1 remplace les clés entre doubles accolades et dépose le résultat sous
+# <Racine>\proxmox\ (hors dépôt : il contient le mot de passe root généré).
+# Référence des clés : https://pve.proxmox.com/wiki/Automated_Installation
+# Clés en kebab-case : Proxmox VE 8.4-1 et suivants ; « reboot-mode » : 8.4-1 et suivants.
+
+[global]
+keyboard = "{{CLAVIER}}"
+country = "{{PAYS}}"
+fqdn = "{{FQDN}}"
+mailto = "root@{{DOMAINE}}"
+timezone = "{{FUSEAU}}"
+root-password = "{{MDP_ROOT}}"
+root-ssh-keys = ["{{CLE_SSH}}"]
+reboot-on-error = false
+reboot-mode = "reboot"
+
+# Adresse d'administration sur la carte LAN (commutateur Hyper-V « lab-interne »), reconnue par son
+# adresse MAC fixe. La passerelle est retirée au premier démarrage : la route par défaut vient
+# ensuite du DHCP du pont WAN (« Default Switch »).
+[network]
+source = "from-answer"
+cidr = "{{IP}}/{{LONGUEUR}}"
+dns = "{{DNS}}"
+gateway = "{{PASSERELLE}}"
+filter.ID_NET_NAME_MAC = "*{{MAC_LAN}}"
+
+# Disque unique de la VM Hyper-V ; ext4 + LVM : le stockage « local-lvm » (LVM-thin) permet les
+# instantanés des VM et l'allocation fine.
+[disk-setup]
+filesystem = "ext4"
+disk-list = ["sda"]
+lvm.swapsize = 1
+# Racine de 40 Go : elle porte le stockage « local » des ISO (environ 22 Go) ; le reste va à local-lvm.
+lvm.maxroot = 40
+
+[first-boot]
+source = "from-iso"
+ordering = "fully-up"

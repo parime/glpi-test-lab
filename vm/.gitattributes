@@ -1,0 +1,3 @@
+# Modèles lus par les VM Linux : fins de ligne LF dans le dépôt et à l'extraction.
+*.sh text eol=lf
+*.yml text eol=lf
