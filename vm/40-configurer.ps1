@@ -239,6 +239,10 @@ Add-Computer -DomainName '$($domaine.Nom)' -OUPath '$ouPostes' -Credential `$cre
     if ($present) {
         Write-LabOk "GLPI Agent installé par la GPO « Labo - GLPI Agent » (serveur $($config.Glpi.UrlAgent))."
         $bilan.Add("$($Vm.Nom) : GLPI Agent installé par GPO")
+        $limite = (Get-Date).AddMinutes(10); $vu = $false
+        while (-not $vu -and (Get-Date) -lt $limite) { $vu = Test-OrdinateurGlpi -NomMachine $Vm.NomMachine; if (-not $vu) { Start-Sleep -Seconds 30 } }
+        if ($vu) { Write-LabOk "$($Vm.NomMachine) est dans GLPI (Parc > Ordinateurs)."; $bilan.Add("$($Vm.Nom) : présent dans GLPI") }
+        else { Write-LabAvert "$($Vm.NomMachine) pas encore dans GLPI : journal de l'agent dans C:\Program Files\GLPI-Agent\logs, ou attendre l'inventaire suivant." }
     } else {
         throw 'GLPI Agent absent après deux démarrages : voir C:\Windows\Temp\glpi-agent-gpo.log et « gpresult /r » dans la VM.'
     }
@@ -266,12 +270,53 @@ function Set-PosteUbuntu {
     Write-LabOk "Membre du domaine $($domaine.Nom)."
 }
 
+function Get-ConteneurGlpi {
+    # Conteneur GLPI du labo qui publie le port de Glpi.UrlAgent (instances.txt du socle, étiquettes
+    # lab.instance et lab.role posées par stack/glpi.yml).
+    $port = ([uri]$config.Glpi.UrlAgent).Port
+    $fichier = Join-Path (Split-Path $PSScriptRoot) 'instances.txt'
+    if (-not (Test-Path $fichier)) { return $null }
+    $instance = $null
+    foreach ($l in Get-Content $fichier) {
+        if ($l -match '^\s*([^#\s]\S*)\s+\S+\s+(\d+)\s*$' -and [int]$Matches[2] -eq $port) { $instance = $Matches[1] }
+    }
+    if (-not $instance) { return $null }
+    $nom = (& docker ps --filter "label=lab.instance=$instance" --filter 'label=lab.role=glpi' --format '{{.Names}}' | Select-Object -First 1)
+    if (-not $nom) { return $null }
+    return @{ Instance = $instance; Conteneur = $nom }
+}
+
+function Enable-InventaireGlpi {
+    # L'inventaire natif de GLPI est désactivé par défaut (Administration > Inventaire) : sans lui,
+    # GLPI refuse les inventaires des agents. Activation par la console de GLPI (config:set).
+    $g = Get-ConteneurGlpi
+    if (-not $g) { Write-LabAvert "Instance GLPI de $($config.Glpi.UrlAgent) introuvable dans Docker : activez l'inventaire à la main (Administration > Inventaire)."; return }
+    & docker exec $g.Conteneur php /var/www/glpi/bin/console config:set --context=inventory enabled_inventory 1 | Out-Null
+    if ($LASTEXITCODE -eq 0) { Write-LabOk "Inventaire natif activé dans $($g.Instance) (Administration > Inventaire)." }
+    else { Write-LabAvert "Activation de l'inventaire impossible dans $($g.Instance) : à faire à la main." }
+}
+
+function Test-OrdinateurGlpi {
+    # Vérifie par la base de l'instance que l'ordinateur a été inventorié (lecture seule).
+    param([string]$NomMachine)
+    $g = Get-ConteneurGlpi
+    if (-not $g) { return $false }
+    $db = (& docker ps --filter "label=lab.instance=$($g.Instance)" --filter 'label=lab.role=db' --format '{{.Names}}' | Select-Object -First 1)
+    if (-not $db) { return $false }
+    $requete = "select count(*) from glpi_computers where name='$NomMachine' and is_deleted=0"
+    # Requête passée sur l'entrée standard : Windows PowerShell 5.1 abîme les guillemets des arguments.
+    $n = $requete | & docker exec -i $db sh -c 'mariadb -uroot -p"$MARIADB_ROOT_PASSWORD" glpi -N'
+    return ([int]($n | Select-Object -Last 1)) -gt 0
+}
 function Test-PareFeu {
     param([hashtable]$Vm)
     if (Test-NetConnection -ComputerName $Vm.Ip -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue) { Write-LabOk "pfSense répond sur https://$($Vm.Ip)/."; return $true }
     Write-LabAvert "pfSense ne répond pas sur https://$($Vm.Ip)/ : installation manuelle à faire (docs/vm.md)."
     return $false
 }
+
+Write-LabEtape 'Instance GLPI du labo'
+Enable-InventaireGlpi
 
 foreach ($vm in (Get-LabVmListe -Config $config -Noms $Nom)) {
     Write-LabEtape "$($vm.Nom) (VM $($vm.VmId), $($vm.Role))"
