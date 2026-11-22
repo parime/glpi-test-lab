@@ -41,7 +41,9 @@ Deux variables facultatives :
 | `GRC_LOCK_GLPI=11` (ou `12`) | seulement les instances de cette version majeure |
 | `GRC_LOCK_LAB_DIR` | emplacement du dépôt du labo (défaut `/f/Dev/glpi-test-lab`) |
 
-En mode labo, `take-any` exporte en plus `G12_GLPI` (11 ou 12). Les verrous restent les mêmes
+Une instance du labo n'est proposée qu'une fois installée et réglée par `lab up` (fichier témoin
+`/var/glpi/config/.lab-initialise`), jamais pendant sa première installation. En mode labo,
+`take-any` exporte en plus `G12_GLPI` (11 ou 12). Les verrous restent les mêmes
 dossiers (`F:\Dev\glpi-test-env\.grc-lock-<instance>`), avec les mêmes règles de reprise. Sans ces
 variables, la sortie et le choix des instances sont identiques à l'ancienne version. Le fichier a
 été remplacé d'un bloc (renommage) pour ne pas gêner les `take-any` en attente pendant la mise à
