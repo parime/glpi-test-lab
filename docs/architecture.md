@@ -79,8 +79,14 @@ Desktop, le labo ne repartait plus :
   restent « Preparing » et leurs essais répétés ralentissent tout le démon Docker (même un
   `docker run alpine true` ne démarrait plus).
 
-Les volumes Docker ordinaires (ext4 dans le disque virtuel) n'ont aucun de ces problèmes : Swarm
-relance les six services seul au redémarrage de Docker Desktop, sans intervention.
+Les volumes Docker ordinaires (ext4 dans le disque virtuel) n'ont aucun de ces problèmes. Essai du
+22/11 : `./lab up glpi`, puis `docker desktop restart`. Swarm a relancé seul les six services, et
+les trois instances ont répondu de nouveau en 200 au bout de 13 minutes (disque chargé), sans
+aucune commande. Leurs plugins étaient toujours activés.
+
+À noter pour la bascule (#7) : au même redémarrage, les conteneurs hors Swarm en
+`restart: unless-stopped` (g12, g12b à g12d, Portainer, WUD, Harbor, k3s) **ne sont pas repartis
+seuls**. Il a fallu les relancer avec `docker start`. Les services Swarm, eux, repartent toujours.
 
 ### Autres points
 
