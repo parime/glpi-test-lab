@@ -224,8 +224,12 @@ redescend à 2,5 Go : aucune clé de contournement (`LabConfig`) n'est nécessai
   les pilotes VirtIO à charger pendant l'installation (`DriverPaths` : disque `vioscsi`, réseau
   `NetKVM`, port série `vioserial`), et l'installation de l'agent invité QEMU à la phase
   specialize (MSI de l'ISO VirtIO). Pour l'AD, il porte aussi l'annuaire de démonstration, le
-  script de GPO et le MSI de GLPI Agent. Le script appuie sur Entrée par l'API (`sendkey`) pendant
-  « Press any key to boot from CD or DVD ». Fin de l'installation = agent invité joignable.
+  script de GPO et le MSI de GLPI Agent. Le DVD est le premier périphérique de démarrage, et le
+  script appuie sur « x » par l'API (`sendkey`) pendant 4 minutes pour « Press any key to boot from
+  CD or DVD » (ni Entrée ni Espace : l'écran d'installation suivant a le bouton « Cancel »
+  sélectionné). Processeur de type `host` : avec le modèle par défaut, l'installeur de Windows
+  Server 2025 redémarrait aussitôt chargé dans cette VM imbriquée. Fin de l'installation = agent
+  invité joignable.
 - **Ubuntu** : ISO `CIDATA` (cloud-init NoCloud, [autoinstall](https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html)) ;
   la ligne de commande GRUB (`linux /casper/vmlinuz autoinstall ---`) est tapée par `sendkey`,
   pour éviter la confirmation de Subiquity
