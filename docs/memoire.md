@@ -57,3 +57,5 @@ retirer.
 
 Les durées viennent presque toutes de la création des tables sur un disque dur partagé (taux
 d'occupation de F: relevé à plus de 400 %). Sur SSD, compter quelques minutes.
+
+<!-- essai de la file de fusion par lots, PR G -->
