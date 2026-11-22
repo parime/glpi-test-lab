@@ -15,8 +15,10 @@
     Microsoft-Windows-PnpCustomizationsWinPE | DriverPaths ; plusieurs lettres de lecteur sont
     listées, celle de l'ISO VirtIO dépendant de l'ordre des lecteurs.
     https://learn.microsoft.com/windows-hardware/customize/desktop/unattend/microsoft-windows-pnpcustomizationswinpe-driverpaths
-  - Agent invité QEMU installé à la phase specialize (Microsoft-Windows-Deployment | RunSynchronous) :
-    https://learn.microsoft.com/windows-hardware/customize/desktop/unattend/microsoft-windows-deployment-runsynchronous
+  - Agent invité QEMU installé à la première ouverture de session (ouverture automatique une seule
+    fois, Microsoft-Windows-Shell-Setup | AutoLogon et FirstLogonCommands) ; installé à la phase
+    specialize, il ne s'installait pas (constaté le 22/11/2026) :
+    https://learn.microsoft.com/windows-hardware/customize/desktop/unattend/microsoft-windows-shell-setup-firstlogoncommands
     Agent invité dans Proxmox : https://pve.proxmox.com/wiki/Qemu-guest-agent
   Le fichier généré contient le mot de passe du labo : il reste sous la racine des VM, hors dépôt.
 -->
@@ -105,15 +107,6 @@
       <ComputerName>{{NOM_MACHINE}}</ComputerName>
       <TimeZone>{{FUSEAU}}</TimeZone>
     </component>
-    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
-      <RunSynchronous>
-        <RunSynchronousCommand wcm:action="add">
-          <Order>1</Order>
-          <Description>Agent invité QEMU (ISO VirtIO)</Description>
-          <Path>cmd.exe /c for %d in (D E F G H I) do if exist %d:\guest-agent\qemu-ga-x86_64.msi msiexec /i %d:\guest-agent\qemu-ga-x86_64.msi /qn /norestart</Path>
-        </RunSynchronousCommand>
-      </RunSynchronous>
-    </component>
   </settings>
   <settings pass="oobeSystem">
     <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
@@ -123,6 +116,22 @@
       <UserLocale>{{REGION}}</UserLocale>
     </component>
     <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <AutoLogon>
+        <Enabled>true</Enabled>
+        <LogonCount>1</LogonCount>
+        <Username>{{AUTOLOGON_UTILISATEUR}}</Username>
+        <Password>
+          <Value>{{AUTOLOGON_MDP}}</Value>
+          <PlainText>true</PlainText>
+        </Password>
+      </AutoLogon>
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Description>Agent invité QEMU (ISO VirtIO)</Description>
+          <CommandLine>cmd.exe /c for %d in (D E F G H I) do if exist %d:\guest-agent\qemu-ga-x86_64.msi msiexec /i %d:\guest-agent\qemu-ga-x86_64.msi /qn /norestart</CommandLine>
+        </SynchronousCommand>
+      </FirstLogonCommands>
       <OOBE>
         <HideEULAPage>true</HideEULAPage>
         <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>

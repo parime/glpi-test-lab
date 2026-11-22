@@ -112,6 +112,7 @@ function New-SupportWindows {
         UI = $langue.WindowsUi; REGION = $langue.WindowsRegion; CLAVIER = $langue.WindowsClavier
         FUSEAU = $langue.WindowsFuseau; INDEX = $Vm.IndexImage; NOM_MACHINE = $Vm.NomMachine; COMPTES = $comptes
         PILOTES = (Get-PilotesXml -Version $versionPilotes)
+        AUTOLOGON_UTILISATEUR = $(if ($Vm.Role -eq 'ad') { 'Administrator' } else { 'labadmin' }); AUTOLOGON_MDP = (ConvertTo-LabXml $secrets.AdminWindows)
     }
     [void][xml]$xml
     $dossier = Join-Path $dossierSupports $Vm.Nom
