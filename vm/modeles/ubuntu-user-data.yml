@@ -1,0 +1,63 @@
+#cloud-config
+# Installation sans intervention d'Ubuntu Server (autoinstall de Subiquity), fournie par un support
+# NoCloud d'étiquette CIDATA que vm\20-creer-vm.ps1 génère à partir de ce modèle.
+# Références :
+# - Démarrage rapide et support CIDATA : https://canonical-subiquity.readthedocs-hosted.com/en/latest/howto/autoinstall-quickstart.html
+# - Référence des clés : https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html
+# - « linux-azure » recommandé par Microsoft pour les services d'intégration Hyper-V (adresse IP
+#   visible depuis l'hôte, KVP) : https://learn.microsoft.com/windows-server/virtualization/hyper-v/supported-ubuntu-virtual-machines-on-hyper-v
+# Le compte labadmin est créé au premier démarrage (section user-data, qui remplace identity).
+autoinstall:
+  version: 1
+  locale: {{LOCALE}}
+  keyboard:
+    layout: {{CLAVIER}}
+  timezone: {{FUSEAU}}
+  refresh-installer:
+    update: false
+  network:
+    version: 2
+    ethernets:
+      lan:
+        match:
+          driver: hv_netvsc
+        addresses: [{{IP}}/{{LONGUEUR}}]
+        routes:
+          - to: default
+            via: {{PASSERELLE}}
+        nameservers:
+          addresses: [{{DNS}}]
+          search: [{{DOMAINE}}]
+  storage:
+    layout:
+      name: direct
+  ssh:
+    install-server: true
+    authorized-keys:
+      - {{CLE_SSH}}
+    allow-pw: false
+  packages:
+    - linux-azure
+  late-commands:
+    - mkdir -p /run/lab-cidata /target/opt/lab
+    - sh -c 'mountpoint -q /run/lab-cidata || mount -o ro /dev/disk/by-label/CIDATA /run/lab-cidata'
+    - cp /run/lab-cidata/glpi-agent-setup.sh /run/lab-cidata/{{AGENT_LINUX}} /target/opt/lab/
+    - chmod 0755 /target/opt/lab/glpi-agent-setup.sh
+    - umount /run/lab-cidata
+  user-data:
+    hostname: {{NOM_MACHINE}}
+    fqdn: {{NOM_MACHINE}}.{{DOMAINE}}
+    users:
+      - name: labadmin
+        gecos: Administrateur du labo
+        groups: [adm, sudo]
+        shell: /bin/bash
+        sudo: "ALL=(ALL) NOPASSWD:ALL"
+        lock_passwd: false
+        plain_text_passwd: '{{MDP}}'
+        ssh_authorized_keys:
+          - {{CLE_SSH}}
+    runcmd:
+      - [bash, /opt/lab/glpi-agent-setup.sh]
+  # Arrêt en fin d'installation : 20-creer-vm.ps1 le détecte, retire les supports et redémarre.
+  shutdown: poweroff
