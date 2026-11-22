@@ -207,10 +207,15 @@ function New-PveVm {
             # Windows : UEFI, clés Microsoft préchargées (démarrage sécurisé), ISO VirtIO en ide0,
             # support d'installation en ide1. TPM 2.0 pour Windows 11.
             $volVirtio = "$($px.StockageIso):iso/$($config.Iso.VirtIO.Fichier)"
-            $p.ostype = 'win11'; $p.bios = 'ovmf'; $p.machine = 'q35'
+            # Processeur « host » : avec le modèle par défaut, l'installeur de Windows Server 2025 redémarrait
+            # aussitôt chargé dans cette VM imbriquée (constaté le 22/11/2026) ; « host » l'a réglé.
+            $p.ostype = 'win11'; $p.bios = 'ovmf'; $p.machine = 'q35'; $p.cpu = 'host'
             $p.efidisk0 = "${stock}:1,efitype=4m,pre-enrolled-keys=1"
             $p.net0 = "virtio,bridge=$($reseau.PontLan)"
-            $p.ide0 = "$volVirtio,media=cdrom"; $p.ide1 = "$VolSupport,media=cdrom"; $p.boot = 'order=scsi0;ide2'
+            $p.ide0 = "$volVirtio,media=cdrom"; $p.ide1 = "$VolSupport,media=cdrom"
+            # DVD d'abord : disque vide en premier, l'échec de démarrage d'OVMF ouvre son menu et les
+            # appuis sur Entrée y tournent en rond. Après l'installation, le DVD est retiré.
+            $p.boot = 'order=ide2;scsi0'
             if ($Vm.Role -eq 'poste-windows') { $p.tpmstate0 = "${stock}:1,version=v2.0" }
         }
     }
@@ -245,10 +250,11 @@ function Start-Installation {
     Start-PveVm -VmId $Vm.VmId
     switch ($Vm.Role) {
         { $_ -in 'ad', 'poste-windows' } {
-            # « Press any key to boot from CD or DVD » : Entrée chaque seconde pendant 5 minutes (sur un
-            # hôte chargé, la VM imbriquée a mis plus de 2 minutes à afficher ce message, qui ne reste
-            # que quelques secondes ; une touche en trop une fois l'installeur lancé est sans effet).
-            for ($i = 0; $i -lt 300; $i++) { Start-Sleep -Seconds 1; try { Send-LabPveTouche -Config $config -VmId $Vm.VmId -Touche 'ret' } catch { } }
+            # « Press any key to boot from CD or DVD » : touche « x » chaque seconde pendant 4 minutes (sur
+            # un hôte chargé, la VM imbriquée a mis plus de 2 minutes à afficher ce message, qui ne reste
+            # que quelques secondes). Ni Entrée ni Espace : l'écran d'installation qui suit a le bouton
+            # « Cancel » sélectionné, et « x » n'y déclenche rien.
+            for ($i = 0; $i -lt 240; $i++) { Start-Sleep -Seconds 1; try { Send-LabPveTouche -Config $config -VmId $Vm.VmId -Touche 'x' } catch { } }
         }
         'poste-ubuntu' {
             Start-Sleep -Seconds $Vm.DelaiGrubSecondes
