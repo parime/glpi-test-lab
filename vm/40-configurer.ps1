@@ -142,16 +142,27 @@ function Set-Ad {
     if ($estDc -ne '1') {
         [void](Invoke-Windows -Vm $Vm -Script (Get-ScriptBase -Ip $Vm.Ip -Dns @($reseau.Passerelle)))
         Write-LabOk 'Réseau et allègement appliqués.'
-        Write-LabInfo 'Rôles AD DS, AD CS et GPMC, puis promotion en contrôleur de la forêt (redémarrage)...'
+        Write-LabInfo 'Rôles AD DS et GPMC, puis promotion en contrôleur de la forêt (redémarrage)...'
         $promo = @"
-Install-WindowsFeature -Name AD-Domain-Services, ADCS-Cert-Authority, GPMC -IncludeManagementTools | Out-Null
+# Le rôle AD CS empêche la promotion (« Certificate Server is installed ») : il est installé après.
+if ((Get-WindowsFeature ADCS-Cert-Authority).Installed) {
+    $r = Uninstall-WindowsFeature ADCS-Cert-Authority
+    if ([string]$r.RestartNeeded -eq 'Yes') { & shutdown.exe /r /t 15 | Out-Null; 'redemarrage'; return }
+}
+Install-WindowsFeature -Name AD-Domain-Services, GPMC -IncludeManagementTools | Out-Null
 Import-Module ADDSDeployment
 Install-ADDSForest -DomainName '$($domaine.Nom)' -DomainNetbiosName '$($domaine.NetBios)' -InstallDns ``
     -SafeModeAdministratorPassword (ConvertTo-SecureString $(ConvertTo-Litteral $secrets.Dsrm) -AsPlainText -Force) -NoRebootOnCompletion -Force | Out-Null
 & shutdown.exe /r /t 15 | Out-Null
 'promotion lancée'
 "@
-        Write-LabInfo (Invoke-Windows -Vm $Vm -Script $promo -Minutes 40)
+        $r = Invoke-Windows -Vm $Vm -Script $promo -Minutes 40
+        if ($r -match 'redemarrage') {
+            Write-LabInfo 'Rôle AD CS retiré (redémarrage) avant la promotion...'
+            Wait-Agent -Vm $Vm -Minutes 40
+            $r = Invoke-Windows -Vm $Vm -Script $promo -Minutes 40
+        }
+        Write-LabInfo $r
         Wait-Agent -Vm $Vm -Minutes 40
         $bilan.Add("$($Vm.Nom) : forêt $($domaine.Nom) créée")
     } else {
@@ -173,6 +184,7 @@ Invoke-Command -ComputerName localhost -Credential `$cred -ArgumentList `$suppor
     Set-DnsClientServerAddress -InterfaceIndex `$carte.ifIndex -ServerAddresses @('127.0.0.1')
     if (-not ((Get-DnsServerForwarder).IPAddress | Where-Object { `$_.IPAddressToString -eq '$($reseau.Passerelle)' })) { Add-DnsServerForwarder -IPAddress '$($reseau.Passerelle)'; `$sortie += 'redirecteur DNS' }
     if (-not (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration\*')) {
+        Install-WindowsFeature -Name ADCS-Cert-Authority -IncludeManagementTools | Out-Null
         Install-AdcsCertificationAuthority -CAType EnterpriseRootCA -CACommonName 'LAB-CA' -ValidityPeriod Years -ValidityPeriodUnits 10 -Force | Out-Null
         `$sortie += 'autorité LAB-CA'
     }
@@ -326,6 +338,9 @@ foreach ($vm in (Get-LabVmListe -Config $config -Noms $Nom)) {
         if ($pve.status -ne 'running') {
             Wait-LabPveTache -Config $config -Upid (Invoke-LabPve -Config $config -Methode POST -Chemin "/nodes/$noeud/qemu/$($vm.VmId)/status/start")
             if ($vm.Role -in 'ad', 'poste-windows') { Wait-Agent -Vm $vm } else { Start-Sleep -Seconds 60 }
+        } elseif ($vm.Role -in 'ad', 'poste-windows' -and -not (Test-LabPveAgent -Config $config -VmId $vm.VmId)) {
+            Write-LabInfo 'Attente de l''agent invité (démarrage en cours)...'
+            Wait-Agent -Vm $vm -Minutes 60
         }
         $pret = $true
         switch ($vm.Role) {
