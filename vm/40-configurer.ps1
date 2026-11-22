@@ -146,8 +146,8 @@ function Set-Ad {
         $promo = @"
 # Le rôle AD CS empêche la promotion (« Certificate Server is installed ») : il est installé après.
 if ((Get-WindowsFeature ADCS-Cert-Authority).Installed) {
-    $r = Uninstall-WindowsFeature ADCS-Cert-Authority
-    if ([string]$r.RestartNeeded -eq 'Yes') { & shutdown.exe /r /t 15 | Out-Null; 'redemarrage'; return }
+    `$r = Uninstall-WindowsFeature ADCS-Cert-Authority
+    if ([string]`$r.RestartNeeded -eq 'Yes') { & shutdown.exe /r /t 15 | Out-Null; 'redemarrage'; return }
 }
 Install-WindowsFeature -Name AD-Domain-Services, GPMC -IncludeManagementTools | Out-Null
 Import-Module ADDSDeployment
