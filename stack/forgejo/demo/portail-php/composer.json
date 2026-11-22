@@ -1,0 +1,11 @@
+{
+    "name": "demo/portail-php",
+    "description": "Portail fictif du labo (dépendances vulnérables connues)",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.1",
+        "guzzlehttp/guzzle": "7.4.0",
+        "twig/twig": "3.4.2"
+    }
+}

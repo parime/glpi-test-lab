@@ -1,0 +1,53 @@
+# Brique « wud » : What's Up Docker 9 (getwud/wud), qui lit le socket Docker en lecture seule et
+# compare les images des conteneurs suivis aux étiquettes publiées par les registres.
+# Documentation : https://getwud.github.io/wud/
+#
+# Seuls les conteneurs marqués wud.watch=true sont suivis (pile lab-demo) : pas les instances g12.
+# Pour l'Inventaire Docker (connecteur WUD) : utilisateur glpi-lecture au rôle « ro », créé par le
+# crochet stack/wud/hook.sh ; le plugin s'y connecte en authentification basique.
+# WUD 8 (ancienne API, authentification basique par empreinte htpasswd) : brique wud8.
+
+services:
+  wud:
+    image: ${LAB_WUD_IMAGE:-getwud/wud:9.9.0}
+    environment:
+      TZ: Europe/Paris
+      WUD_LOG_LEVEL: info
+      # Administrateur amorcé au premier démarrage ; les autres comptes sont créés par l'API.
+      WUD_AUTH_ADMIN_USER: admin
+      WUD_AUTH_ADMIN_PASSWORD: "${LAB_WUD_ADMIN_PASSWORD:?mot de passe absent, lancer ./lab init}"
+      WUD_WATCHER_LOCAL_SOCKET: /var/run/docker.sock
+      WUD_WATCHER_LOCAL_WATCHBYDEFAULT: "false"
+      # Vérification toutes les 6 heures (Docker Hub limite les requêtes anonymes).
+      WUD_WATCHER_LOCAL_CRON: "0 */6 * * *"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - store:/store
+    ports:
+      - target: 3000
+        published: 8122
+        protocol: tcp
+        mode: ingress
+    networks:
+      default: {}
+      lab-net:
+        aliases: [wud]
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+        reservations:
+          memory: 48M
+
+volumes:
+  store:
+
+networks:
+  default:
+    driver: overlay
+  lab-net:
+    external: true

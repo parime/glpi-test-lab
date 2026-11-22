@@ -1,0 +1,61 @@
+# Brique « forgejo » : forge Git Forgejo (logiciel libre, base SQLite), dépôts de démonstration.
+# Documentation : https://forgejo.org/docs/latest/admin/installation-docker/ ; API :
+# https://forgejo.org/docs/latest/user/api-usage/ (Swagger servi par l'instance : /api/swagger).
+#
+# Sert aux dépôts de test (dépendances vulnérables connues, tickets de sécurité) : organisation
+# demo et ses dépôts, administrateur lab-admin et utilisateur glpi-lecture (jeton en lecture), créés
+# par le crochet stack/forgejo/hook.sh. GRC (sécurité du code) n'a pas encore de connecteur Forgejo
+# ou Gitea (seulement GitHub et GitLab) : `lab connect` ne crée rien pour Forgejo.
+#
+# Interface : http://localhost:8140 ; depuis GLPI (lab-net) : http://forgejo:3000. Pas de SSH.
+
+services:
+  forgejo:
+    image: ${LAB_FORGEJO_IMAGE:-codeberg.org/forgejo/forgejo:15.0.12}
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      FORGEJO__database__DB_TYPE: sqlite3
+      FORGEJO__server__ROOT_URL: http://localhost:8140/
+      FORGEJO__server__HTTP_PORT: "3000"
+      FORGEJO__server__DISABLE_SSH: "true"
+      FORGEJO__server__START_SSH_SERVER: "false"
+      FORGEJO__security__INSTALL_LOCK: "true"
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+      FORGEJO__service__REQUIRE_SIGNIN_VIEW: "false"
+      FORGEJO__repository__DEFAULT_BRANCH: main
+      FORGEJO__indexer__REPO_INDEXER_ENABLED: "false"
+      FORGEJO__cron__ENABLED: "false"
+      FORGEJO__log__LEVEL: Info
+      FORGEJO__mailer__ENABLED: "false"
+    volumes:
+      - data:/data
+    ports:
+      - target: 3000
+        published: 8140
+        protocol: tcp
+        mode: ingress
+    networks:
+      default: {}
+      lab-net:
+        aliases: [forgejo]
+    stop_grace_period: 30s
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 384M
+          cpus: "1"
+        reservations:
+          memory: 64M
+
+volumes:
+  data:
+
+networks:
+  default:
+    driver: overlay
+  lab-net:
+    external: true

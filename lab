@@ -5,6 +5,8 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")" && pwd)
 cd "$ROOT"
+# Chemin lisible par docker.exe sous Git Bash (F:/Dev/...), pour les fichiers de secrets.
+ROOT_W=$(pwd -W 2>/dev/null || pwd)
 # Git Bash : ne pas convertir les chemins Linux passés à docker (/run/desktop/..., /var/www/...).
 export MSYS_NO_PATHCONV=1
 STACK_PREFIX=lab-
@@ -19,12 +21,17 @@ Usage : ./lab <commande> [arguments]
 
   init                     prépare la machine : .env et mots de passe, Swarm, réseau lab-net
   up <profil|brique|instance>…
-                           démarre (profils : voir profiles.txt ; instances : instances.txt)
+                           démarre (profils : voir profiles.txt ; instances : instances.txt), puis
+                           crée les comptes d'API et les données de démonstration des briques
+  seed <profil|brique>…    recrée ce qui manque (comptes d'API, données de démonstration)
+  connect <instance…> [-- <brique…>]
+                           crée ou met à jour les connexions des briques démarrées dans les GLPI
+                           (Inventaire Docker), et autorise leurs réseaux privés
   down [--force] [<profil|brique|instance>…]
                            arrête (tout le labo sans argument) ; refuse si une instance est verrouillée
   status                   état des piles, des instances GLPI (HTTP, verrou) et mémoire utilisée
-  reset [--force] <instance>
-                           réinstalle une instance GLPI de zéro (base, /var/glpi et plugins effacés)
+  reset [--force] <instance|brique>
+                           réinstalle une instance GLPI ou une brique de zéro (volumes effacés)
   logs <instance|brique> [service] [--follow]
                            journaux (service glpi par défaut pour une instance)
   list                     profils, instances et briques disponibles
@@ -38,6 +45,8 @@ Exemples :
   ./lab up glpi11          les instances GLPI 11 seulement
   ./lab up glpi12-a        une instance
   ./lab reset glpi12-b
+  ./lab up docker          Portainer, WUD, Harbor, Forgejo… avec leurs données de démonstration
+  ./lab connect glpi12-b   connexions « Labo - … » dans l'Inventaire Docker de glpi12-b
   G12=glpi12-a sh /f/Dev/glpi-test-env/deploy-g12.sh grcmanager
 EOF
 }
@@ -58,18 +67,26 @@ load_env() {
 
 gen_secret() { od -An -N16 -tx1 /dev/urandom | tr -d ' \n'; }
 
-cmd_init() {
+# Complète .env : variables de .env.example absentes (nouvelles briques) ajoutées, mots de passe et
+# secrets vides (LAB_…_PASSWORD, LAB_…_SECRET) générés. Rejouable : rien n'est remplacé.
+ensure_env() {
   if [ ! -f .env ]; then
     cp .env.example .env
     info ".env créé à partir de .env.example"
   fi
-  local k
-  for k in LAB_DB_ROOT_PASSWORD LAB_DB_PASSWORD; do
-    if grep -q "^$k=$" .env; then
-      sed -i "s/^$k=$/$k=$(gen_secret)/" .env
-      info "$k généré dans .env"
-    fi
+  local line k
+  while IFS= read -r line; do
+    k=${line%%=*}
+    grep -q "^$k=" .env || { echo "$line" >> .env; info "$k ajouté à .env"; }
+  done < <(grep -E '^LAB_[A-Z0-9_]+=' .env.example)
+  for k in $(grep -oE '^LAB_[A-Z0-9_]*(PASSWORD|SECRET)=$' .env | tr -d =); do
+    sed -i "s/^$k=$/$k=$(gen_secret)/" .env
+    info "$k généré dans .env"
   done
+}
+
+cmd_init() {
+  ensure_env
   load_env
   local state
   state=$(docker info --format '{{.Swarm.LocalNodeState}}')
@@ -104,6 +121,13 @@ instances() { grep -vE '^[[:space:]]*(#|$)' instances.txt | awk '{print $1, $2, 
 instance_line() { instances | awk -v n="$1" '$1 == n'; }
 is_instance() { [ -n "$(instance_line "$1")" ]; }
 is_brique() { [ -f "stack/$1.yml" ] && [ "$1" != glpi ]; }
+hook_of() { [ -f "stack/$1/hook.sh" ] && echo "stack/$1/hook.sh"; }
+# Lance un crochet de brique (voir lib/brique.sh) s'il existe : run_hook <brique> <action>.
+run_hook() {
+  local h
+  h=$(hook_of "$1") || return 0
+  BRIQUE=$1 LAB_ROOT=$ROOT LAB_ROOT_W=$ROOT_W bash "$h" "$2"
+}
 
 # Développe des profils en unités : « i:<instance> » ou « b:<brique> ».
 expand() {
@@ -156,9 +180,21 @@ deploy_instance() {
     docker stack deploy --detach=true --resolve-image never -c stack/glpi.yml "$STACK_PREFIX$name" >/dev/null
 }
 
+# Version des configs et secrets Swarm d'une brique (immuables) : empreinte de stack/<brique>/ et de
+# secrets/<brique>/, reprise dans leurs noms (lab-<brique>-<nom>-<version>) ; un fichier modifié
+# donne donc une nouvelle config au lieu d'un refus de `docker stack deploy`.
+config_version() {
+  { [ -d "stack/$1" ] && find "stack/$1" -type f ! -name hook.sh | sort | xargs cat
+    [ -d "secrets/$1" ] && find "secrets/$1" -type f | sort | xargs cat
+  } 2>/dev/null | md5sum | cut -c1-10
+}
+
 deploy_brique() {
   info "brique $1"
-  docker stack deploy --detach=true "-c" "stack/$1.yml" "$STACK_PREFIX$1" >/dev/null
+  run_hook "$1" prepare
+  load_env   # le crochet a pu ajouter des secrets à .env
+  LAB_CONFIG_VERSION=$(config_version "$1") LAB_SECRETS_DIR=$ROOT_W/secrets \
+    docker stack deploy --detach=true --resolve-image never -c "stack/$1.yml" "$STACK_PREFIX$1" >/dev/null
 }
 
 # Attend l'installation automatique de GLPI, puis règle la langue et l'adresse (une seule fois).
@@ -189,16 +225,62 @@ init_instance() {
 
 cmd_up() {
   [ $# -ge 1 ] || die "usage : ./lab up <profil|brique|instance>…"
-  load_env; require_swarm; ensure_network
-  local units u todo=()
+  ensure_env; load_env; require_swarm; ensure_network
+  local units u todo=() seeds=()
   units=$(expand "$@")
   for u in $units; do
     case "$u" in
       i:*) deploy_instance "${u#i:}"; todo+=("${u#i:}") ;;
-      b:*) deploy_brique "${u#b:}" ;;
+      b:*) deploy_brique "${u#b:}"; seeds+=("${u#b:}") ;;
     esac
   done
+  # Comptes d'API et données de démonstration (LAB_NO_SEED=1 pour s'en passer).
+  if [ "${LAB_NO_SEED:-0}" != 1 ]; then
+    for u in "${seeds[@]}"; do run_hook "$u" seed; done
+  fi
   for u in "${todo[@]}"; do init_instance "$u"; done
+}
+
+cmd_seed() {
+  [ $# -ge 1 ] || die "usage : ./lab seed <profil|brique>…"
+  ensure_env; load_env; require_swarm
+  local u
+  for u in $(expand "$@"); do
+    case "$u" in b:*) run_hook "${u#b:}" seed ;; esac
+  done
+}
+
+# Connexions des briques démarrées dans les GLPI : chaque crochet « connect » décrit les siennes
+# (JSON, une par ligne) ; tools/glpi-connections.php les crée ou les met à jour dans le plugin
+# Inventaire Docker de chaque instance et y autorise les contextes vers les réseaux privés.
+cmd_connect() {
+  local names=() briques=() a sep=0
+  for a in "$@"; do
+    if [ "$a" = -- ]; then sep=1; continue; fi
+    if [ $sep = 1 ]; then briques+=("$a"); else names+=("$a"); fi
+  done
+  [ ${#names[@]} -ge 1 ] || die "usage : ./lab connect <instance|profil…> [-- <brique|profil…>]"
+  ensure_env; load_env
+  local b u specs="" running
+  running=$(lab_stacks)
+  if [ ${#briques[@]} -eq 0 ]; then
+    for b in stack/*/hook.sh; do briques+=("$(basename "$(dirname "$b")")"); done
+  fi
+  for u in $(expand "${briques[@]}"); do
+    case "$u" in b:*) ;; *) continue ;; esac
+    b=${u#b:}
+    echo "$running" | grep -qx "$STACK_PREFIX$b" || continue
+    specs+="$(run_hook "$b" connect)"$'\n'
+  done
+  [ -n "${specs//$'\n'/}" ] || die "aucune brique démarrée qui sache se connecter à GLPI (./lab up docker)"
+  local name c
+  for name in $(expand "${names[@]}" | sed -n 's/^i://p'); do
+    c=$(glpi_container "$name")
+    [ -n "$c" ] || die "$name n'est pas démarrée"
+    info "$name : connexions des briques"
+    docker cp tools/glpi-connections.php "$c:/tmp/lab-glpi-connections.php" >/dev/null
+    printf '%s' "$specs" | docker exec -i -u www-data -w /var/www/glpi "$c" php /tmp/lab-glpi-connections.php
+  done
 }
 
 # ---------------------------------------------------------------------------- down / reset
@@ -241,12 +323,25 @@ cmd_down() {
   info "arrêté (données conservées dans les volumes Docker lab-*)"
 }
 
+# Brique : pile arrêtée, volumes effacés, jetons générés oubliés (crochet reset), puis `lab up`.
+reset_brique() {
+  local b=$1 s=$STACK_PREFIX$1 v
+  if docker stack ls --format '{{.Name}}' | grep -qx "$s"; then
+    info "arrêt de $s"; docker stack rm "$s" >/dev/null; wait_stack_gone "$s"
+  fi
+  info "effacement des volumes de $b"
+  for v in $(docker volume ls -q -f "label=com.docker.stack.namespace=$s"); do docker volume rm "$v" >/dev/null; done
+  run_hook "$b" reset
+  cmd_up "$b"
+}
+
 cmd_reset() {
   local force=0
   [ "${1:-}" = --force ] && { force=1; shift; }
-  [ $# -eq 1 ] || die "usage : ./lab reset [--force] <instance>"
+  [ $# -eq 1 ] || die "usage : ./lab reset [--force] <instance|brique>"
   local name=$1 s=$STACK_PREFIX$1 v
-  is_instance "$name" || die "instance inconnue : $name"
+  if is_brique "$name"; then load_env; require_swarm; reset_brique "$name"; return; fi
+  is_instance "$name" || die "instance ou brique inconnue : $name"
   load_env; require_swarm
   [ $force = 1 ] || check_locks "$s"
   if docker stack ls --format '{{.Name}}' | grep -qx "$s"; then
@@ -368,6 +463,8 @@ case "$c" in
   down) cmd_down "$@" ;;
   status) cmd_status ;;
   reset) cmd_reset "$@" ;;
+  seed) cmd_seed "$@" ;;
+  connect) cmd_connect "$@" ;;
   logs) cmd_logs "$@" ;;
   list) cmd_list ;;
   mem) cmd_mem ;;
