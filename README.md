@@ -13,8 +13,12 @@ Plan d'ensemble : issue #1. Toutes les données sont fictives.
   offres gratuites. Aucune licence payante ni service cloud payant.
 - **Par profils** : on ne démarre que les briques utiles au test en cours (la machine a 32 Go de RAM,
   partagés avec le reste).
-- **Tout sur F:** : les données du labo sont dans `F:\Dev\glpi-test-lab-data`, le disque de Docker
-  dans `F:\Docker`. Rien sur C:.
+- **Tout sur F:** : les données vivantes sont dans des volumes Docker (disque de Docker Desktop,
+  `F:\Docker`), les sauvegardes dans `F:\Dev\glpi-test-lab-data`. Rien sur C:.
+- **Rien de surdimensionné** : chaque service a des limites `deploy.resources` (mémoire et CPU)
+  taillées d'après les mesures, et la CI refuse un service sans limite.
+- **Survit aux redémarrages** : après un redémarrage du PC ou de Docker Desktop, Swarm relance
+  seul toutes les piles démarrées ; aucune commande à refaire.
 - **Secrets locaux** : les mots de passe sont générés dans `.env` (ignoré par git), jamais commités.
 - **Versions épinglées** : images officielles `glpi/glpi` et `mariadb` à une version précise.
 - **Compatible avec l'existant** : les instances du labo se prennent avec `grc-lock.sh take-any` et
@@ -32,7 +36,8 @@ Windows 11 (Git Bash)          Docker Desktop (WSL2), Docker Swarm à un nœud
   http://localhost:8101 ──────► port publié par Swarm (réseau ingress)
                                 réseau overlay lab-net : toutes les briques (GLPI joint les
                                 connecteurs par leur nom), un réseau privé par instance pour sa base
-F:\Dev\glpi-test-lab-data\<instance>\{db,var,plugins}  ◄── volumes de chaque instance
+volumes Docker lab-<instance>_{db,var,plugins}  (disque de Docker Desktop, F:\Docker)
+F:\Dev\glpi-test-lab-data\backups  ◄── ./lab backup (base SQL, /var/glpi, plugins)
 ```
 
 - **Docker Swarm à un nœud** (choix de l'issue #1, détails dans [docs/architecture.md](docs/architecture.md)) :
@@ -68,8 +73,8 @@ Profils déclarés dans [profiles.txt](profiles.txt). Mémoire réellement utili
 | `glpi12` | 2 instances GLPI 12 | 530 Mio | 690 Mio |
 | `glpi` | 3 instances | 740 Mio | 950 Mio |
 
-En pratique : **0,4 Gio par instance GLPI en usage**. Plafonds par conteneur réglables dans `.env`
-(`LAB_GLPI_MEMORY`, `LAB_DB_MEMORY`).
+En pratique : **0,4 Gio par instance GLPI en usage**. Limites par conteneur : GLPI 768 Mio et
+1,5 cœur, MariaDB 320 Mio et 1 cœur (réglables dans `.env` : `LAB_GLPI_MEMORY`, `LAB_DB_MEMORY`).
 
 **Disque lent** : F: est un disque dur partagé avec Docker et glpi-test-env. La première
 installation d'une instance y prend de 25 à 45 minutes, l'installation des tables de GRC de 9 à
@@ -107,6 +112,7 @@ sh /f/Dev/glpi-test-env/tools/grc-lock.sh release "$G12"
 | `./lab list` | profils, instances et briques |
 | `./lab mem` | mémoire utilisée par pile et au total |
 | `./lab container <instance>` | conteneur GLPI de l'instance, pour `docker exec` |
+| `./lab backup <instance\|profil>` | sauvegarde base, `/var/glpi` et plugins dans `F:\Dev\glpi-test-lab-data\backups` |
 
 `down` et `reset` refusent d'arrêter une instance verrouillée par un agent (`grc-lock.sh`), sauf
 avec `--force`. `lab` ne touche qu'aux piles `lab-*` : jamais aux conteneurs de glpi-test-env.

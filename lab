@@ -30,6 +30,8 @@ Usage : ./lab <commande> [arguments]
   list                     profils, instances et briques disponibles
   mem                      mémoire réellement utilisée, par pile et au total
   container <instance>     identifiant du conteneur GLPI (pour docker exec)
+  backup <instance|profil>…
+                           sauvegarde base, /var/glpi et plugins dans F:\Dev\glpi-test-lab-data\backups
 
 Exemples :
   ./lab up glpi            toutes les instances GLPI
@@ -43,29 +45,15 @@ EOF
 # ---------------------------------------------------------------------------- réglages
 load_env() {
   [ -f .env ] || die ".env absent : lancer ./lab init"
-  # Une valeur passée sur la ligne de commande (LAB_STORAGE=volume ./lab up …) l'emporte sur .env.
-  local storage=${LAB_STORAGE:-}
   set -a
   # shellcheck disable=SC1091
   . ./.env
   set +a
-  [ -z "$storage" ] || LAB_STORAGE=$storage
-  : "${LAB_DATA_DIR:=F:/Dev/glpi-test-lab-data}" "${LAB_STORAGE:=bind}" "${LAB_GLPI_LANGUAGE:=fr_FR}"
+  : "${LAB_DATA_DIR:=F:/Dev/glpi-test-lab-data}" "${LAB_GLPI_LANGUAGE:=fr_FR}"
   : "${LAB_LOCK_DIR:=F:/Dev/glpi-test-env}"
   if [ -z "${LAB_DB_PASSWORD:-}" ] || [ -z "${LAB_DB_ROOT_PASSWORD:-}" ]; then
     die "mots de passe vides dans .env : lancer ./lab init"
   fi
-  LAB_DATA_DIR_VM=$(vm_path "$LAB_DATA_DIR")
-  export LAB_DATA_DIR_VM
-}
-
-# Chemin Windows (F:/Dev/x ou F:\Dev\x) vu depuis la machine virtuelle de Docker Desktop.
-vm_path() {
-  local p=${1//\\//}
-  case "$p" in
-    [A-Za-z]:/*) local d=${p%%:*}; echo "/run/desktop/mnt/host/$(echo "$d" | tr '[:upper:]' '[:lower:]')${p#?:}" ;;
-    *) echo "$p" ;;
-  esac
 }
 
 gen_secret() { od -An -N16 -tx1 /dev/urandom | tr -d ' \n'; }
@@ -98,7 +86,7 @@ cmd_init() {
   fi
   ensure_network
   mkdir -p "$LAB_DATA_DIR"
-  info "prêt (données : $LAB_DATA_DIR, stockage : $LAB_STORAGE)"
+  info "prêt (sauvegardes : $LAB_DATA_DIR)"
 }
 
 ensure_network() {
@@ -163,14 +151,9 @@ locked() { [ -d "$(lockdir "$1")" ]; }
 deploy_instance() {
   local name=$1 version port
   read -r _ version port <<<"$(instance_line "$name")"
-  local files=(-c stack/glpi.yml)
-  if [ "$LAB_STORAGE" = bind ]; then
-    mkdir -p "$LAB_DATA_DIR/$name/db" "$LAB_DATA_DIR/$name/var" "$LAB_DATA_DIR/$name/plugins"
-    files+=(-c stack/glpi.bind.yml)
-  fi
   info "$name : GLPI $version sur http://localhost:$port"
   LAB_INSTANCE=$name LAB_GLPI_VERSION=$version LAB_PORT=$port \
-    docker stack deploy --detach=true --resolve-image never "${files[@]}" "$STACK_PREFIX$name" >/dev/null
+    docker stack deploy --detach=true --resolve-image never -c stack/glpi.yml "$STACK_PREFIX$name" >/dev/null
 }
 
 deploy_brique() {
@@ -255,7 +238,7 @@ cmd_down() {
     docker stack rm "$s" >/dev/null
   done
   for s in "${stacks[@]}"; do wait_stack_gone "$s"; done
-  info "arrêté (données conservées dans $LAB_DATA_DIR)"
+  info "arrêté (données conservées dans les volumes Docker lab-*)"
 }
 
 cmd_reset() {
@@ -269,14 +252,30 @@ cmd_reset() {
   if docker stack ls --format '{{.Name}}' | grep -qx "$s"; then
     info "arrêt de $s"; docker stack rm "$s" >/dev/null; wait_stack_gone "$s"
   fi
+  info "effacement des volumes de $name"
   for v in db var plugins; do docker volume rm "${s}_$v" >/dev/null 2>&1 || true; done
-  if [ "$LAB_STORAGE" = bind ] && [ -d "$LAB_DATA_DIR/$name" ]; then
-    info "effacement de $LAB_DATA_DIR/$name"
-    rm -rf "${LAB_DATA_DIR:?}/$name"
-  fi
   ensure_network
   deploy_instance "$name"
   init_instance "$name"
+}
+
+# ---------------------------------------------------------------------------- backup
+# Sauvegarde d'une instance dans LAB_DATA_DIR/backups/<instance>-<date>/ : base (SQL compressé),
+# /var/glpi et plugins (tar). La base reste dans un volume Docker ; ceci en est la copie lisible.
+cmd_backup() {
+  [ $# -ge 1 ] || die "usage : ./lab backup <instance>…"
+  load_env
+  local name d c db
+  for name in $(expand "$@" | sed -n 's/^i://p'); do
+    c=$(glpi_container "$name"); db=$(docker ps -q -f "label=lab.instance=$name" -f label=lab.role=db | head -1)
+    if [ -z "$c" ] || [ -z "$db" ]; then die "$name n'est pas démarrée"; fi
+    d="$LAB_DATA_DIR/backups/$name-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$d"
+    info "$name : sauvegarde dans $d"
+    docker exec "$db" sh -c 'mariadb-dump -uroot -p"$MARIADB_ROOT_PASSWORD" --single-transaction --routines --triggers glpi | gzip -1' > "$d/glpi.sql.gz"
+    docker exec -u root "$c" tar czf - -C /var/glpi . > "$d/var-glpi.tar.gz"
+    docker exec -u root "$c" tar czf - -C /var/www/glpi/plugins . > "$d/plugins.tar.gz"
+  done
 }
 
 # ---------------------------------------------------------------------------- status / mem / logs / list
@@ -303,7 +302,7 @@ cmd_mem() {
 
 cmd_status() {
   load_env
-  echo "Swarm : $(docker info --format '{{.Swarm.LocalNodeState}}')    données : $LAB_DATA_DIR ($LAB_STORAGE)"
+  echo "Swarm : $(docker info --format '{{.Swarm.LocalNodeState}}')    sauvegardes : $LAB_DATA_DIR"
   echo
   echo "Instances GLPI :"
   local mem name version port st code lock m
@@ -357,7 +356,6 @@ cmd_list() {
   echo; echo "Briques (stack/) :"
   local f
   for f in stack/*.yml; do
-    case "$f" in *.bind.yml) continue ;; esac
     echo "  $(basename "$f" .yml)"
   done
 }
@@ -373,6 +371,7 @@ case "$c" in
   logs) cmd_logs "$@" ;;
   list) cmd_list ;;
   mem) cmd_mem ;;
+  backup) cmd_backup "$@" ;;
   container) cmd_container "$@" ;;
   help|-h|--help) usage ;;
   *) usage >&2; exit 1 ;;

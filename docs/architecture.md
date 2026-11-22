@@ -34,7 +34,7 @@ docker swarm init --default-addr-pool 10.210.0.0/16 --default-addr-pool-mask-len
 
 | Pile | Fichier | Services |
 |---|---|---|
-| `lab-<instance>` (une par ligne de `instances.txt`) | `stack/glpi.yml` (+ `stack/glpi.bind.yml`) | `glpi`, `db` |
+| `lab-<instance>` (une par ligne de `instances.txt`) | `stack/glpi.yml` | `glpi`, `db` |
 | `lab-<brique>` (lots suivants) | `stack/<brique>.yml` | selon la brique |
 
 `lab` ne manipule que les piles dont le nom commence par `lab-`.
@@ -52,34 +52,48 @@ docker swarm init --default-addr-pool 10.210.0.0/16 --default-addr-pool-mask-len
 
 ## Données
 
-Par défaut (`LAB_STORAGE=bind`), chaque instance a ses données dans
-`F:\Dev\glpi-test-lab-data\<instance>\` :
+Chaque instance a trois **volumes Docker nommés**, dans le disque de Docker Desktop
+(`F:\Docker`, donc sur F:) :
 
-| Dossier | Monté sur | Contenu |
+| Volume | Monté sur | Contenu |
 |---|---|---|
-| `db` | `/var/lib/mysql` (MariaDB) | base |
-| `var` | `/var/glpi` | configuration (dont `config_db.php`, `glpicrypt.key`), fichiers, journaux |
-| `plugins` | `/var/www/glpi/plugins` | plugins déployés par `deploy-g12.sh` |
+| `lab-<instance>_db` | `/var/lib/mysql` (MariaDB) | base |
+| `lab-<instance>_var` | `/var/glpi` | configuration (dont `config_db.php`, `glpicrypt.key`), fichiers, journaux |
+| `lab-<instance>_plugins` | `/var/www/glpi/plugins` | plugins déployés par `deploy-g12.sh` |
 
-Les volumes sont des volumes Docker nommés (`lab-<instance>_db`…) de type « bind » vers ces
-dossiers ; la machine virtuelle de Docker Desktop voit `F:\` sous `/run/desktop/mnt/host/f`.
+`F:\Dev\glpi-test-lab-data` reçoit les **sauvegardes** lisibles depuis Windows :
+`./lab backup <instance|profil>` y écrit `backups/<instance>-<date>/` (base en SQL compressé,
+`/var/glpi` et plugins en archives tar).
+
+### Pourquoi pas de dossier de Windows pour les données
+
+La première version posait les volumes dans `F:\Dev\glpi-test-lab-data\<instance>\` (montage du
+disque Windows dans la machine virtuelle de Docker Desktop, en 9p). Après un redémarrage de Docker
+Desktop, le labo ne repartait plus :
+
+- MariaDB ne sait pas synchroniser ses fichiers sur ce montage (`Can't sync file … Errcode: 5
+  "Input/output error"`, `Errcode: 14 "Bad address"`) ; un arrêt brutal y laisse ses tables système
+  Aria corrompues (`Got error '126 "Index is corrupted"' for './mysql/proc.MAI'`) et
+  `mariadb-install-db` échoue ensuite à chaque relance ;
+- au redémarrage, tant que le partage de `F:` n'est pas prêt, les tâches Swarm qui le montent
+  restent « Preparing » et leurs essais répétés ralentissent tout le démon Docker (même un
+  `docker run alpine true` ne démarrait plus).
+
+Les volumes Docker ordinaires (ext4 dans le disque virtuel) n'ont aucun de ces problèmes : Swarm
+relance les six services seul au redémarrage de Docker Desktop, sans intervention.
+
+### Autres points
 
 - Le dossier des plugins est un volume : quand Swarm relance une tâche (nouveau conteneur), les
   plugins déployés sont conservés.
-- MariaDB voit un système de fichiers insensible à la casse et passe d'elle-même en
-  `lower_case_table_names=2` ; GLPI fonctionne ainsi.
-- Les fichiers de Windows sont plus lents que le disque de la machine virtuelle. `LAB_STORAGE=volume`
-  dans `.env` utilise des volumes Docker ordinaires (dans `F:\Docker`), plus rapides mais invisibles
-  depuis l'explorateur ; à choisir avant `lab up` ou avant un `lab reset`. La valeur peut aussi
-  être donnée pour une seule commande : `LAB_STORAGE=volume ./lab reset glpi12-b`. Une instance
-  garde ensuite ce mode : la redéployer dans l'autre mode relancerait ses conteneurs sur des volumes
-  différents.
+- MariaDB s'arrête proprement (`stop_grace_period` d'une minute) et écrit son journal à chaque
+  transaction, synchronisé une fois par seconde (`innodb_flush_log_at_trx_commit=2`) : un arrêt de
+  Docker Desktop ne perd rien, une coupure de courant au plus une seconde.
 - **Disque lent** : `F:` est un disque dur, partagé avec le disque de Docker Desktop et toutes les
   instances de glpi-test-env. La première installation de GLPI y prend de 15 à 45 minutes quand il
-  est chargé (contre quelques minutes sur SSD) ; les deux modes de stockage se valent (mesure du
-  22/11 : 66 et 41 tables créées en 3 minutes). MariaDB tourne donc sans synchronisation disque à
-  chaque transaction, et `lab up` attend jusqu'à 60 minutes (`LAB_INSTALL_TIMEOUT`, en pas de
-  5 secondes). Ensuite, l'instance se garde : `lab down` puis `lab up` redémarrent en une minute.
+  est chargé (contre quelques minutes sur SSD) ; `lab up` attend jusqu'à 60 minutes
+  (`LAB_INSTALL_TIMEOUT`, en pas de 5 secondes). Ensuite l'instance se garde : `lab down` puis
+  `lab up`, ou un redémarrage de Docker Desktop, la relancent en une à deux minutes.
 - Ce qu'un script copie dans `/tmp` du conteneur (par exemple les dépendances de test de
   `prepare-g12-test-vendors.sh`) est perdu si Swarm relance la tâche : relancer le script.
 
@@ -101,7 +115,15 @@ Comptes par défaut de GLPI : glpi/glpi (super-admin), tech/tech, normal/normal,
 L'image GLPI ne lit pas ses identifiants de base dans un fichier, d'où l'usage de variables plutôt
 que de secrets Swarm.
 
-## Limites mémoire
+## Ressources : au plus juste
 
-Chaque conteneur a un plafond (`deploy.resources.limits.memory`) réglable dans `.env` : 1 Gio par
-GLPI, 512 Mio par MariaDB (tampon InnoDB de 128 Mio). Mesures : [memoire.md](memoire.md).
+Règle du labo : **rien de surdimensionné**. Chaque service de chaque fichier de stack a des limites
+`deploy.resources` (mémoire et CPU), vérifiées par la CI, et une réservation de mémoire :
+
+| Service | Limite mémoire (`.env`) | Limite CPU | Réservation | Mesuré en usage |
+|---|---|---|---|---|
+| GLPI | 768 Mio (`LAB_GLPI_MEMORY`) | 1,5 cœur | 128 Mio | 135 à 160 Mio |
+| MariaDB | 320 Mio (`LAB_DB_MEMORY`) | 1 cœur | 128 Mio | 130 à 220 Mio (tampon de 128 Mio) ; tampon réduit à 64 Mio |
+
+MariaDB tourne aussi sans `performance_schema`, avec 50 connexions au plus et un journal de 48 Mio.
+Mesures : [memoire.md](memoire.md).

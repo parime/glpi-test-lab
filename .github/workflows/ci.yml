@@ -2,7 +2,6 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
 
 permissions:
@@ -42,18 +41,14 @@ jobs:
           LAB_PORT: "8101"
           LAB_DB_ROOT_PASSWORD: ci
           LAB_DB_PASSWORD: ci
-          LAB_DATA_DIR_VM: /tmp/lab
         run: |
           set -e
           for f in stack/*.yml; do
-            case "$f" in *.bind.yml) continue ;; esac
             echo "== $f"
             docker compose -f "$f" config --quiet
-            b=${f%.yml}.bind.yml
-            if [ -f "$b" ]; then
-              echo "== $f + $b"
-              docker compose -f "$f" -f "$b" config --quiet
-            fi
+            # Taille au plus juste : chaque service a une limite de mémoire et de CPU.
+            missing=$(docker compose -f "$f" config --format json | jq -r '.services | to_entries[] | select((.value.deploy.resources.limits.memory // "") == "" or (.value.deploy.resources.limits.cpus // "") == "") | .key')
+            if [ -n "$missing" ]; then echo "::error file=$f::services sans limite deploy.resources : $missing"; exit 1; fi
           done
       - name: Instances et profils
         run: |
