@@ -397,10 +397,20 @@ function Invoke-LabPve {
         foreach ($cle in $Parametres.Keys) { $arguments += @('--data-urlencode', "$cle=$($Parametres[$cle])") }
     }
     $arguments += @('-w', "`n%{http_code}", $url)
-    $sortie = (& $curl @arguments) -join "`n"
-    if ($LASTEXITCODE -ne 0) { throw "API Proxmox injoignable ($Methode $Chemin) : curl, code $LASTEXITCODE." }
-    $code = [int]($sortie.Substring($sortie.LastIndexOf("`n") + 1))
-    $corps = $sortie.Substring(0, $sortie.LastIndexOf("`n"))
+    # Nouvel essai sur les erreurs passagères (Proxmox chargé : 596 = délai dépassé côté pveproxy).
+    for ($essai = 1; $essai -le 5; $essai++) {
+        $sortie = (& $curl @arguments) -join "`n"
+        $codeCurl = $LASTEXITCODE
+        $code = 0; $corps = ''
+        if ($codeCurl -eq 0) {
+            $code = [int]($sortie.Substring($sortie.LastIndexOf("`n") + 1))
+            $corps = $sortie.Substring(0, $sortie.LastIndexOf("`n"))
+        }
+        $passager = ($codeCurl -ne 0) -or ($code -in 500, 502, 503, 596)
+        if (-not $passager -or $essai -eq 5 -or $Fichiers.Count -gt 0) { break }
+        Start-Sleep -Seconds (5 * $essai)
+    }
+    if ($codeCurl -ne 0) { throw "API Proxmox injoignable ($Methode $Chemin) : curl, code $codeCurl." }
     if ($code -ge 400) { throw "API Proxmox $Methode $Chemin : HTTP $code $corps" }
     if (-not $corps) { return $null }
     return ($corps | ConvertFrom-Json).data

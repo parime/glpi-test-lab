@@ -299,10 +299,13 @@ $etat = Get-LabEtat -Config $config
 foreach ($vm in $vms) {
     Write-LabEtape "$($vm.Nom) (VM $($vm.VmId), $($vm.Role))"
     $existante = Get-LabPveVm -Config $config -VmId $vm.VmId
+    $enCours = $false
     if ($existante) {
         Write-LabInfo "La VM existe déjà (état : $($existante.status)) : pas de recréation."
         if ($etat.ContainsKey($vm.Nom) -and $etat[$vm.Nom].ContainsKey('InstalleLe')) { Write-LabOk "Installée le $($etat[$vm.Nom].InstalleLe)."; continue }
-        if ($existante.status -ne 'stopped' -or $SansInstallation) { continue }
+        if ($SansInstallation) { continue }
+        # VM allumée mais pas marquée installée : installation en cours (script relancé), on attend sa fin.
+        if ($existante.status -ne 'stopped' -and $vm.Role -ne 'pare-feu') { $enCours = $true }
     } else {
         $volIso = Send-IsoProxmox -Chemin (Join-Path $dossierIso (Get-NomIsoSysteme -Vm $vm))
         $volSupport = $null
@@ -331,8 +334,10 @@ foreach ($vm in $vms) {
             continue
         }
     }
-    Start-Installation -Vm $vm
-    Write-LabOk 'Installation lancée.'
+    if (-not $enCours) {
+        Start-Installation -Vm $vm
+        Write-LabOk 'Installation lancée.'
+    }
     if ($SansAttente) { continue }
     Write-LabInfo 'Attente de la fin de l''installation (20 à 60 minutes)...'
     if (Complete-Installation -Vm $vm) {
