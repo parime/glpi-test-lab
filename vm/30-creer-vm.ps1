@@ -245,7 +245,10 @@ function Start-Installation {
     Start-PveVm -VmId $Vm.VmId
     switch ($Vm.Role) {
         { $_ -in 'ad', 'poste-windows' } {
-            for ($i = 0; $i -lt 25; $i++) { Start-Sleep -Seconds 1; try { Send-LabPveTouche -Config $config -VmId $Vm.VmId -Touche 'ret' } catch { } }
+            # « Press any key to boot from CD or DVD » : Entrée chaque seconde pendant 5 minutes (sur un
+            # hôte chargé, la VM imbriquée a mis plus de 2 minutes à afficher ce message, qui ne reste
+            # que quelques secondes ; une touche en trop une fois l'installeur lancé est sans effet).
+            for ($i = 0; $i -lt 300; $i++) { Start-Sleep -Seconds 1; try { Send-LabPveTouche -Config $config -VmId $Vm.VmId -Touche 'ret' } catch { } }
         }
         'poste-ubuntu' {
             Start-Sleep -Seconds $Vm.DelaiGrubSecondes

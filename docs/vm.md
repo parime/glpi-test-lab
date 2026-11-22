@@ -163,7 +163,10 @@ l'écran de la VM Hyper-V pendant l'installation, sans ouvrir de console.
 5. Lit en SSH le jeton et l'autorité de certification de Proxmox (`pve-root-ca.pem`) : les appels
    d'API vérifient le certificat. Le jeton est rangé dans `secrets.json` et dans un fichier
    d'en-tête lu par curl, pour qu'il n'apparaisse pas sur la ligne de commande.
-6. Envoie les ISO du labo dans le stockage `local` de Proxmox par l'API (`…/storage/local/upload`).
+6. Place les ISO du labo dans le stockage `local` de Proxmox : quand la source et la somme sont
+   connues (Windows, VirtIO, Ubuntu), Proxmox les télécharge lui-même et vérifie la somme SHA-256
+   (API `download-url`), bien plus vite qu'un envoi depuis l'hôte ; sinon (pfSense), envoi par
+   l'API (`upload`).
 
 Interface web : **https://10.77.10.5:8006/** (utilisateur `root`, royaume « Linux PAM », mot de
 passe `RootProxmox` de `secrets.json`).
@@ -178,14 +181,16 @@ La VM 101 est créée par l'API (1 vCPU, 1 Go, 8 Go) et démarre sur l'ISO. Son 
 mode texte et n'a pas de fichier de réponses documenté par Netgate, d'où ces étapes manuelles,
 dans l'interface de Proxmox (**VM 101 > Console**) :
 
-1. Installeur pfSense CE 2.7.2 (intitulés à peu près identiques selon la version) : **Accept**,
-   **Install**, clavier (par exemple **French**), **Auto (ZFS)**, **Install**, **stripe**, cocher
-   le disque (barre d'espace), **YES**, « Manual configuration » **No**, **Reboot**.
-2. Affectation des interfaces : VLAN **n**, WAN **vtnet0**, LAN **vtnet1**, **y**
+1. Installeur pfSense CE 2.7.2 (relevé le 22/11/2026) : **Accept**, **Install**, **Auto (UFS)**
+   (ZFS demande plus de mémoire que le 1 Go de la VM), **Entire Disk**, **MBR**, **Finish**,
+   **Commit**, puis **Reboot**. La VM redémarre sur son disque (le disque passe avant le DVD).
+2. Affectation des interfaces (au premier démarrage) : VLAN **n**, WAN **vtnet0**, LAN **vtnet1**, **y**
    (vtnet0 est sur `vmbr1`, le WAN ; vtnet1 sur `vmbr0`, le LAN).
 3. Menu **2) Set interface(s) IP address**, **2 (LAN)** : **10.77.10.1**, masque **24**, pas de
    passerelle, pas d'IPv6, serveur DHCP **n** (le DHCP du LAN est celui de Proxmox, réservé à
    l'hôte ; les VM ont des adresses fixes), revenir en HTTP **n**. Le WAN reste en DHCP.
+   À ce stade, pfSense route et traduit déjà le LAN vers Internet (règles par défaut) : les
+   installations d'Ubuntu peuvent commencer. Les étapes suivantes se font quand vous voulez.
 4. Depuis l'hôte, **https://10.77.10.1/** (certificat auto-signé), `admin` / `pfsense`, assistant :
    nom `pfsense`, domaine **lab.local**, DNS vide, fuseau **Europe/Paris**, WAN et LAN inchangés,
    **décocher « Block RFC1918 Private Networks »** sur le WAN (le WAN est lui-même en 172.25.x),
@@ -398,6 +403,10 @@ Sous `F:\Dev\glpi-test-lab-data\vm` :
 | `etat.json` | dates d'installation et de configuration |
 
 ## Dépannage
+
+- **Voir l'écran d'une VM sans navigateur** : `vm\outils\capture-console.ps1` (VM Hyper-V
+  `lab-proxmox`) et `vm\outils\capture-vm-proxmox.ps1 -VmId <id>` (VM de Proxmox) écrivent une
+  capture PNG.
 
 - **« Cette session ne peut pas piloter Hyper-V »** : compte hors du groupe « Administrateurs
   Hyper-V » (voir l'étape administrateur), ou session pas rouverte depuis l'ajout.
