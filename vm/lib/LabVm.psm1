@@ -474,7 +474,13 @@ function Invoke-LabPveAgent {
     foreach ($morceau in $Commande) { $arguments += @('--data-urlencode', "command=$morceau") }
     if ($Entree) { $arguments += @('--data-urlencode', "input-data=$Entree") }
     $arguments += "$($ctx.Base)/nodes/$noeud/qemu/$VmId/agent/exec"
-    $reponse = (& $curl @arguments) -join "`n"
+    # L'agent peut répondre au « ping » avant d'accepter des commandes (premier démarrage d'un
+    # contrôleur de domaine, hôte lent) : nouveaux essais pendant 10 minutes.
+    for ($essai = 1; $essai -le 20; $essai++) {
+        $reponse = (& $curl @arguments) -join "`n"
+        if ($LASTEXITCODE -eq 0) { break }
+        Start-Sleep -Seconds 30
+    }
     if ($LASTEXITCODE -ne 0) { throw "agent/exec refusé pour la VM $VmId (agent invité absent ?)." }
     $pid_ = ($reponse | ConvertFrom-Json).data.pid
     $limite = (Get-Date).AddMinutes($Minutes)
