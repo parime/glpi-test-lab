@@ -1,0 +1,131 @@
+--- a/deploy-g12.sh
++++ b/deploy-g12.sh
+@@ -3,6 +3,13 @@
+ # .git ni vendor, dépendances de production seulement (composer --no-dev), puis réinstallation.
+ # Usage : sh deploy-g12.sh [grcmanager] [configurationglpiauto] [assetsign]   (défaut : les trois)
+ set -e
++# Instance du labo glpi-test-lab (G12=glpi12-a, glpi11-a...) : son conteneur Swarm se retrouve par
++# l'étiquette lab.instance. Sans G12, ou avec g12, g12b, g12c, g12d, rien ne change.
++if [ -n "${G12:-}" ] && ! docker inspect --type container "$G12" >/dev/null 2>&1; then
++  lab_c=$(docker ps -q -f "label=lab.instance=$G12" -f label=lab.role=glpi | head -1)
++  [ -n "$lab_c" ] || { echo "instance $G12 introuvable (ni conteneur, ni instance du labo en marche)" >&2; exit 1; }
++  G12=$lab_c
++fi
+ # Dossier de travail sous ce dépôt : /tmp n'a pas de chemin Windows valide pour docker quand le
+ # script est lancé en arrière-plan.
+ mkdir -p "$(dirname "$0")/.work"
+--- a/test-g12.sh
++++ b/test-g12.sh
+@@ -11,6 +11,13 @@
+ # contiennent), puis celles de production sont recopiées par-dessus et le surplus est supprimé.
+ key=$1
+ cmd=$2
++# Instance du labo glpi-test-lab (G12=glpi12-a, glpi11-a...) : son conteneur Swarm se retrouve par
++# l'étiquette lab.instance. Sans G12, ou avec g12, g12b, g12c, g12d, rien ne change.
++if [ -n "${G12:-}" ] && ! docker inspect --type container "$G12" >/dev/null 2>&1; then
++  lab_c=$(docker ps -q -f "label=lab.instance=$G12" -f label=lab.role=glpi | head -1)
++  [ -n "$lab_c" ] || { echo "instance $G12 introuvable (ni conteneur, ni instance du labo en marche)" >&2; exit 1; }
++  G12=$lab_c
++fi
+ P=/var/www/glpi/plugins/$key
+ case $key in
+   grcmanager) dev=/tmp/grcdev.tar ;;
+--- a/prepare-g12-test-vendors.sh
++++ b/prepare-g12-test-vendors.sh
+@@ -4,6 +4,13 @@
+ #   /tmp/grcdev.tar    : vendor de développement (PHPUnit, phpcs, PHPStan) installé le temps des tests.
+ # À relancer après chaque recréation de l'environnement GLPI 12 (docker-compose.glpi12.yml).
+ set -e
++# Instance du labo glpi-test-lab (G12=glpi12-a, glpi11-a...) : son conteneur Swarm se retrouve par
++# l'étiquette lab.instance. Sans G12, ou avec g12, g12b, g12c, g12d, rien ne change.
++if [ -n "${G12:-}" ] && ! docker inspect --type container "$G12" >/dev/null 2>&1; then
++  lab_c=$(docker ps -q -f "label=lab.instance=$G12" -f label=lab.role=glpi | head -1)
++  [ -n "$lab_c" ] || { echo "instance $G12 introuvable (ni conteneur, ni instance du labo en marche)" >&2; exit 1; }
++  G12=$lab_c
++fi
+ REPO=/f/Dev/glpi-iso27001-management
+ WORK=$(mktemp -d)
+ trap 'rm -rf "$WORK"' EXIT
+--- a/tools/grc-lock.sh
++++ b/tools/grc-lock.sh
+@@ -9,9 +9,15 @@
+ # Un verrou est repris au bout de 20 minutes si son processus est mort, au bout de 40 minutes dans
+ # tous les cas. Priorité aux publications : avec GRC_LOCK_PRIORITY=1 (g12 seulement), un fichier
+ # d'annonce est posé ; les autres demandeurs de g12 attendent qu'il disparaisse.
++# Labo glpi-test-lab (instances Swarm glpi12-a, glpi11-a..., liste dans son instances.txt) :
++#   GRC_LOCK_LAB=1    : take-any et status proposent aussi les instances du labo en marche ;
++#   GRC_LOCK_LAB=only : seulement celles du labo ;
++#   GRC_LOCK_GLPI=11  : seulement les instances de cette version majeure de GLPI (11 ou 12).
++# Sans ces variables, rien ne change.
+ D=/f/Dev/glpi-test-env
+ SLOTS=$D/tools/g12-slots.txt
+ P=$D/.grc-lock-priority
++LAB_INSTANCES=${GRC_LOCK_LAB_DIR:-/f/Dev/glpi-test-lab}/instances.txt
+ lockdir() { [ "$1" = g12 ] && echo "$D/.grc-lock" || echo "$D/.grc-lock-$1"; }
+ stale() {
+   L=$(lockdir "$1"); [ -d "$L" ] || return 1
+@@ -29,13 +35,27 @@
+   mkdir "$L" 2>/dev/null || return 1
+   echo "$OWNER" > "$L/owner"
+ }
+-# Instances disponibles : celles de la liste dont le conteneur tourne.
++# Instances disponibles : celles de la liste dont le conteneur tourne (« nom port version-majeure »).
+ slots() {
+-  [ -f "$SLOTS" ] || { echo "g12 8092"; return; }
+-  while read -r n port; do
+-    case "$n" in ''|\#*) continue ;; esac
+-    [ "$(docker inspect -f '{{.State.Running}}' "$n" 2>/dev/null)" = true ] && echo "$n $port"
+-  done < "$SLOTS"
++  if [ "${GRC_LOCK_LAB:-0}" != only ]; then
++    if [ -f "$SLOTS" ]; then
++      while read -r n port; do
++        case "$n" in ''|\#*) continue ;; esac
++        [ "$(docker inspect -f '{{.State.Running}}' "$n" 2>/dev/null)" = true ] && echo "$n $port 12"
++      done < "$SLOTS"
++    else
++      echo "g12 8092 12"
++    fi
++  fi
++  if [ "${GRC_LOCK_LAB:-0}" != 0 ] && [ -f "$LAB_INSTANCES" ]; then
++    while read -r n v port _; do
++      case "$n" in ''|\#*) continue ;; esac
++      # Prête seulement après l'installation et les réglages de `lab up` (fichier témoin).
++      c=$(docker ps -q -f "label=lab.instance=$n" -f label=lab.role=glpi 2>/dev/null | head -1)
++      [ -n "$c" ] && MSYS_NO_PATHCONV=1 docker exec "$c" test -f /var/glpi/config/.lab-initialise 2>/dev/null && echo "$n $port ${v%%.*}"
++    done < "$LAB_INSTANCES"
++  fi
++  true
+ }
+ OWNER=$PPID
+ case "$1" in
+@@ -49,12 +69,18 @@
+     OWNER=$(ps -o ppid= -p "$PPID" 2>/dev/null | tr -d ' '); [ -n "$OWNER" ] || OWNER=$PPID
+     while :; do
+       # g12 est réservée aux publications (take) : take-any ne la donne pas tant que des copies existent.
+-      list=$(slots | grep -v "^g12 "); [ -n "$list" ] || list=$(slots)
+-      for s in $(echo "$list" | awk '{print $1":"$2}'); do
+-        n=${s%%:*}; port=${s#*:}
++      all=$(slots | awk -v g="${GRC_LOCK_GLPI:-}" 'g == "" || $3 == g')
++      list=$(echo "$all" | grep -v "^g12 "); [ -n "$list" ] || list=$all
++      for s in $(echo "$list" | awk 'NF {print $1":"$2":"$3}'); do
++        n=${s%%:*}; port=${s#*:}; ver=${port#*:}; port=${port%%:*}
+         if try "$n"; then
+           echo "instance $n verrouillée : http://localhost:$port" >&2
+-          echo "export G12=$n G12_URL=http://localhost:$port"; exit 0
++          if [ "${GRC_LOCK_LAB:-0}" != 0 ]; then
++            echo "export G12=$n G12_URL=http://localhost:$port G12_GLPI=$ver"
++          else
++            echo "export G12=$n G12_URL=http://localhost:$port"
++          fi
++          exit 0
+         fi
+       done
+       sleep 20
+@@ -62,6 +88,6 @@
+   release)
+     n=${2:-${G12:-g12}}; L=$(lockdir "$n"); rm -f "$L/owner"; rmdir "$L" 2>/dev/null; true ;;
+   status)
+-    slots | while read -r n port; do L=$(lockdir "$n"); if [ -d "$L" ]; then echo "$n ($port) : prise"; else echo "$n ($port) : libre"; fi; done ;;
++    slots | while read -r n port _; do L=$(lockdir "$n"); if [ -d "$L" ]; then echo "$n ($port) : prise"; else echo "$n ($port) : libre"; fi; done ;;
+   *) echo "usage : grc-lock.sh take-any | take | release [instance] | status"; exit 1 ;;
+ esac

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - name: Scripts bash et sh
+        run: |
+          files=$(git ls-files lab '*.sh' compat/*.sh)
+          echo "$files"
+          # shellcheck disable=SC2086
+          shellcheck --severity=style $files
+
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - name: Workflows
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+
+  stacks:
+    name: fichiers de stack
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - name: Validation (docker compose config)
+        env:
+          LAB_INSTANCE: ci
+          LAB_GLPI_VERSION: 12.0.2
+          LAB_PORT: "8101"
+          LAB_DB_ROOT_PASSWORD: ci
+          LAB_DB_PASSWORD: ci
+        run: |
+          set -e
+          for f in stack/*.yml; do
+            echo "== $f"
+            docker compose -f "$f" config --quiet
+            # Taille au plus juste : chaque service a une limite de mémoire et de CPU.
+            missing=$(docker compose -f "$f" config --format json | jq -r '.services | to_entries[] | select((.value.deploy.resources.limits.memory // "") == "" or (.value.deploy.resources.limits.cpus // "") == "") | .key')
+            if [ -n "$missing" ]; then echo "::error file=$f::services sans limite deploy.resources : $missing"; exit 1; fi
+          done
+      - name: Instances et profils
+        run: |
+          set -e
+          # instances.txt : nom unique, version x.y.z, port unique dans 8100-8119, pas de nom de glpi-test-env.
+          grep -vE '^[[:space:]]*(#|$)' instances.txt | awk '
+            NF != 3 { print "ligne invalide : " $0; bad = 1 }
+            $1 ~ /^g12[a-z]?$/ { print "nom réservé à glpi-test-env : " $1; bad = 1 }
+            $2 !~ /^1[12]\.[0-9]+\.[0-9]+$/ { print "version invalide : " $2; bad = 1 }
+            $3 < 8100 || $3 > 8119 { print "port hors plage : " $3; bad = 1 }
+            seen[$1]++ { print "nom en double : " $1; bad = 1 }
+            ports[$3]++ { print "port en double : " $3; bad = 1 }
+            END { exit bad }'
+          ./lab list
