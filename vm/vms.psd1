@@ -156,6 +156,7 @@
             NomMachine    = 'PC-WIN11'
             Role          = 'poste-windows'
             Iso           = 'Windows11Entreprise'
+            # Image unique « Windows 11 Enterprise Evaluation » (EnterpriseEval), relevée le 22/11/2026.
             IndexImage    = 1
             Ordre         = 3
             Processeurs   = 2
