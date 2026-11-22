@@ -179,8 +179,10 @@ deploy_brique() {
 init_instance() {
   local name=$1 version port c i=0
   read -r _ version port <<<"$(instance_line "$name")"
-  until [ "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$port/index.php" || true)" = 200 ]; do
-    i=$((i + 1)); [ $i -gt 120 ] && die "$name ne répond pas après 10 minutes (./lab logs $name)"
+  # Première installation : de 5 minutes (disque libre) à 40 minutes (disque dur très chargé).
+  until [ "$(curl -s -m 10 -o /dev/null -w '%{http_code}' "http://localhost:$port/index.php" || true)" = 200 ]; do
+    i=$((i + 1)); [ $i -gt "${LAB_INSTALL_TIMEOUT:-720}" ] && die "$name ne répond pas après $((i * 5 / 60)) minutes (./lab logs $name)"
+    [ $((i % 60)) -eq 0 ] && info "$name : installation en cours depuis $((i * 5 / 60)) minutes"
     sleep 5
   done
   c=$(glpi_container "$name")

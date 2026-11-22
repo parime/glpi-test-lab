@@ -37,6 +37,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 30
+      # Swarm relance un conteneur « unhealthy » : sur un disque lent, la création de la base peut
+      # durer plusieurs minutes, et une relance en plein milieu laisserait une base sans comptes.
+      start_period: 30m
     labels:
       lab.instance: ${LAB_INSTANCE:?instance absente}
       lab.role: db
