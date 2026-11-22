@@ -273,9 +273,9 @@ function Complete-Installation {
     # Attente de la fin, retrait de l'ISO du système, mémoire de fonctionnement, redémarrage.
     param([hashtable]$Vm)
     if ($Vm.Role -eq 'poste-ubuntu') {
-        if (-not (Wait-PveArret -VmId $Vm.VmId -Minutes 60)) { return $false }
+        if (-not (Wait-PveArret -VmId $Vm.VmId -Minutes 240)) { return $false }
     } else {
-        $limite = (Get-Date).AddMinutes(90); $pret = $false
+        $limite = (Get-Date).AddMinutes(360); $pret = $false
         while (-not $pret -and (Get-Date) -lt $limite) { Start-Sleep -Seconds 30; $pret = Test-LabPveAgent -Config $config -VmId $Vm.VmId }
         if (-not $pret) { return $false }
         Stop-PveVmPropre -VmId $Vm.VmId
