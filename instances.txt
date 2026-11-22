@@ -3,7 +3,6 @@
 # Plages de ports : 8100-8109 GLPI 12, 8110-8119 GLPI 11, 8120-8199 autres briques (voir docs/ports.md).
 # Le nom sert aussi de nom de verrou (grc-lock.sh) et de valeur de G12 pour deploy-g12.sh et test-g12.sh :
 # il ne doit pas reprendre g12, g12b, g12c ou g12d (instances de glpi-test-env).
-essai-e  12.0.2  8109
 glpi12-a 12.0.2  8101
 glpi12-b 12.0.2  8102
 glpi11-a 11.0.13 8111
