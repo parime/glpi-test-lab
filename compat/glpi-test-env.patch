@@ -64,7 +64,7 @@
  lockdir() { [ "$1" = g12 ] && echo "$D/.grc-lock" || echo "$D/.grc-lock-$1"; }
  stale() {
    L=$(lockdir "$1"); [ -d "$L" ] || return 1
-@@ -29,13 +35,25 @@
+@@ -29,13 +35,27 @@
    mkdir "$L" 2>/dev/null || return 1
    echo "$OWNER" > "$L/owner"
  }
@@ -89,14 +89,16 @@
 +  if [ "${GRC_LOCK_LAB:-0}" != 0 ] && [ -f "$LAB_INSTANCES" ]; then
 +    while read -r n v port _; do
 +      case "$n" in ''|\#*) continue ;; esac
-+      [ -n "$(docker ps -q -f "label=lab.instance=$n" -f label=lab.role=glpi 2>/dev/null)" ] && echo "$n $port ${v%%.*}"
++      # Prête seulement après l'installation et les réglages de `lab up` (fichier témoin).
++      c=$(docker ps -q -f "label=lab.instance=$n" -f label=lab.role=glpi 2>/dev/null | head -1)
++      [ -n "$c" ] && MSYS_NO_PATHCONV=1 docker exec "$c" test -f /var/glpi/config/.lab-initialise 2>/dev/null && echo "$n $port ${v%%.*}"
 +    done < "$LAB_INSTANCES"
 +  fi
 +  true
  }
  OWNER=$PPID
  case "$1" in
-@@ -49,12 +67,18 @@
+@@ -49,12 +69,18 @@
      OWNER=$(ps -o ppid= -p "$PPID" 2>/dev/null | tr -d ' '); [ -n "$OWNER" ] || OWNER=$PPID
      while :; do
        # g12 est réservée aux publications (take) : take-any ne la donne pas tant que des copies existent.
@@ -119,7 +121,7 @@
          fi
        done
        sleep 20
-@@ -62,6 +86,6 @@
+@@ -62,6 +88,6 @@
    release)
      n=${2:-${G12:-g12}}; L=$(lockdir "$n"); rm -f "$L/owner"; rmdir "$L" 2>/dev/null; true ;;
    status)

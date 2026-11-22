@@ -9,7 +9,21 @@ marche à côté).
 
 ## Mesures
 
-MESURES
+Mémoire résidente, en Mio (GLPI + MariaDB) :
+
+| Profil | Contenu | Installé, au repos | GRC déployé, connexion et 6 pages ouvertes |
+|---|---|---|---|
+| une instance GLPI 12 (`glpi12-a`) | GLPI 12.0.2 + MariaDB | 265 | 375 (155 + 220) |
+| `glpi11` | GLPI 11.0.13 + MariaDB | 210 (pendant l'installation) | 370 (160 + 210) |
+| `glpi12` | 2 instances GLPI 12 | 530 | 690 (une seule avec GRC) |
+| `glpi` | les 3 instances | 740 | 950 (deux avec GRC) |
+
+À retenir pour planifier : **compter 0,4 Gio par instance GLPI en usage**, 0,3 Gio au repos.
+Les plafonds (1 Gio + 512 Mio par instance) ne sont jamais approchés par ces usages ; ils protègent
+le poste d'une fuite pendant des tests PHPUnit.
+
+Pour comparaison, une instance g12 de glpi-test-env (base de démonstration chargée, plusieurs
+plugins) occupe de 0,6 à 1 Gio.
 
 ## Plafonds
 
@@ -23,4 +37,20 @@ retirer.
 
 ## Disque
 
-DISQUE
+| Élément | Taille | Où |
+|---|---|---|
+| Images (`glpi/glpi:12.0.2`, `glpi/glpi:11.0.13`, `mariadb:11.8.9`) | environ 1,7 Gio chacune pour GLPI | disque de Docker (`F:\Docker`) |
+| Base GLPI 12 vide (avec GRC) | 295 Mio | `F:\Dev\glpi-test-lab-data\<instance>\db` |
+| `/var/glpi` | 6 Mio | `…\<instance>\var` |
+| Plugins (GRC avec ses dépendances de production) | 76 Mio | `…\<instance>\plugins` |
+
+### Durées mesurées (disque dur F: très chargé, 22/11)
+
+| Étape | GLPI 12 | GLPI 11 |
+|---|---|---|
+| Première installation (`lab up`, base vide) | 25 à 45 min | 38 min |
+| `deploy-g12.sh grcmanager` (installation des tables du plugin) | 19 min | 9 min |
+| Page GLPI ou GRC une fois connecté (cache chaud) | 1 à 2 s | 1 à 2 s |
+
+Les durées viennent presque toutes de la création des tables sur un disque dur partagé (taux
+d'occupation de F: relevé à plus de 400 %). Sur SSD, compter quelques minutes.

@@ -61,13 +61,19 @@ Ajouter une instance : une ligne dans `instances.txt` (nom, version, port libre 
 Profils déclarés dans [profiles.txt](profiles.txt). Mémoire réellement utilisée, mesurée avec
 `./lab mem` (détails et méthode : [docs/memoire.md](docs/memoire.md)) :
 
-| Profil | Contenu | Mémoire au repos | Après déploiement d'un plugin et navigation |
+| Profil | Contenu | Au repos | GRC déployé, pages ouvertes |
 |---|---|---|---|
-| `glpi12-a` (une instance) | GLPI 12 + MariaDB | voir docs/memoire.md | voir docs/memoire.md |
-| `glpi11` | 1 instance GLPI 11 | voir docs/memoire.md | voir docs/memoire.md |
-| `glpi` | 3 instances | voir docs/memoire.md | voir docs/memoire.md |
+| `glpi12-a` (une instance) | GLPI 12 + MariaDB | 265 Mio | 375 Mio |
+| `glpi11` | 1 instance GLPI 11 | 210 Mio | 370 Mio |
+| `glpi12` | 2 instances GLPI 12 | 530 Mio | 690 Mio |
+| `glpi` | 3 instances | 740 Mio | 950 Mio |
 
-Plafonds par conteneur réglables dans `.env` (`LAB_GLPI_MEMORY`, `LAB_DB_MEMORY`).
+En pratique : **0,4 Gio par instance GLPI en usage**. Plafonds par conteneur réglables dans `.env`
+(`LAB_GLPI_MEMORY`, `LAB_DB_MEMORY`).
+
+**Disque lent** : F: est un disque dur partagé avec Docker et glpi-test-env. La première
+installation d'une instance y prend de 25 à 45 minutes, l'installation des tables de GRC de 9 à
+19 minutes ; ensuite les pages répondent en 1 à 2 secondes et `lab down` / `lab up` gardent tout.
 
 ## Démarrage rapide
 

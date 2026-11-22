@@ -43,10 +43,13 @@ EOF
 # ---------------------------------------------------------------------------- réglages
 load_env() {
   [ -f .env ] || die ".env absent : lancer ./lab init"
+  # Une valeur passée sur la ligne de commande (LAB_STORAGE=volume ./lab up …) l'emporte sur .env.
+  local storage=${LAB_STORAGE:-}
   set -a
   # shellcheck disable=SC1091
   . ./.env
   set +a
+  [ -z "$storage" ] || LAB_STORAGE=$storage
   : "${LAB_DATA_DIR:=F:/Dev/glpi-test-lab-data}" "${LAB_STORAGE:=bind}" "${LAB_GLPI_LANGUAGE:=fr_FR}"
   : "${LAB_LOCK_DIR:=F:/Dev/glpi-test-env}"
   if [ -z "${LAB_DB_PASSWORD:-}" ] || [ -z "${LAB_DB_ROOT_PASSWORD:-}" ]; then
@@ -294,8 +297,8 @@ cmd_mem() {
   local data
   data=$(mem_by_stack)
   [ -n "$data" ] || { echo "aucune pile du labo en marche"; return; }
-  echo "$data" | awk '{ s[$1] += $2; t += $2 } END {
-    for (k in s) printf "%-24s %7.0f Mio\n", k, s[k]; printf "%-24s %7.0f Mio\n", "TOTAL", t }' | sort
+  echo "$data" | awk '{ s[$1] += $2 } END { for (k in s) printf "%-24s %7.0f Mio\n", k, s[k] }' | sort
+  echo "$data" | awk '{ t += $2 } END { printf "%-24s %7.0f Mio\n", "TOTAL", t }'
 }
 
 cmd_status() {

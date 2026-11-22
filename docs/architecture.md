@@ -70,7 +70,16 @@ dossiers ; la machine virtuelle de Docker Desktop voit `F:\` sous `/run/desktop/
   `lower_case_table_names=2` ; GLPI fonctionne ainsi.
 - Les fichiers de Windows sont plus lents que le disque de la machine virtuelle. `LAB_STORAGE=volume`
   dans `.env` utilise des volumes Docker ordinaires (dans `F:\Docker`), plus rapides mais invisibles
-  depuis l'explorateur ; à choisir avant `lab up` ou avant un `lab reset`.
+  depuis l'explorateur ; à choisir avant `lab up` ou avant un `lab reset`. La valeur peut aussi
+  être donnée pour une seule commande : `LAB_STORAGE=volume ./lab reset glpi12-b`. Une instance
+  garde ensuite ce mode : la redéployer dans l'autre mode relancerait ses conteneurs sur des volumes
+  différents.
+- **Disque lent** : `F:` est un disque dur, partagé avec le disque de Docker Desktop et toutes les
+  instances de glpi-test-env. La première installation de GLPI y prend de 15 à 45 minutes quand il
+  est chargé (contre quelques minutes sur SSD) ; les deux modes de stockage se valent (mesure du
+  22/11 : 66 et 41 tables créées en 3 minutes). MariaDB tourne donc sans synchronisation disque à
+  chaque transaction, et `lab up` attend jusqu'à 60 minutes (`LAB_INSTALL_TIMEOUT`, en pas de
+  5 secondes). Ensuite, l'instance se garde : `lab down` puis `lab up` redémarrent en une minute.
 - Ce qu'un script copie dans `/tmp` du conteneur (par exemple les dépendances de test de
   `prepare-g12-test-vendors.sh`) est perdu si Swarm relance la tâche : relancer le script.
 
