@@ -186,7 +186,7 @@ function New-PveVm {
     if ($Vm.ContainsKey('MemoireInstallationMo')) { $memoire = $Vm.MemoireInstallationMo }
     $p = @{
         vmid = $Vm.VmId; name = $Vm.Nom; cores = $Vm.Coeurs; sockets = 1; memory = $memoire
-        cpu = 'host'; scsihw = 'virtio-scsi-single'; agent = 'enabled=1'
+        scsihw = 'virtio-scsi-single'; agent = 'enabled=1'
         scsi0 = "${stock}:$($Vm.DisqueGo),discard=on,iothread=1,ssd=1"
         ide2 = "$VolIso,media=cdrom"
         description = "glpi-test-lab (vm/vms.psd1) : $($Vm.Role)"

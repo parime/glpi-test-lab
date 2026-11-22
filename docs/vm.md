@@ -1,20 +1,23 @@
-# VM Hyper-V du laboratoire
+# VM du laboratoire : Proxmox VE dans Hyper-V
 
-Ce lot (issue #5) monte quatre machines virtuelles sous Hyper-V, sur ce PC :
+Ce lot (issue #5) monte les machines du labo dans **Proxmox VE**, lui-même installé dans **une
+seule VM Hyper-V** avec la virtualisation imbriquée. Les VM du labo sont créées par l'**API de
+Proxmox** (jeton d'API, jamais le mot de passe root dans le dépôt).
 
-| VM | Système | Rôle dans les tests | Adresse |
-|---|---|---|---|
-| `lab-pfsense` | pfSense CE (gratuit) | pare-feu, réseau segmenté, futur équipement réseau de la cartographie (#8) | LAN 10.77.10.1, WAN 10.77.0.2 |
-| `lab-ad` (DC01) | Windows Server 2025, évaluation 180 jours | contrôleur du domaine `lab.local`, annuaire LDAP de GLPI, revues d'accès de GRC | 10.77.10.10 |
-| `lab-win11` (PC-WIN11) | Windows 11 Entreprise, évaluation 90 jours | poste joint au domaine, inventorié par GLPI Agent | 10.77.10.20 |
-| `lab-ubuntu` (srv-ubuntu) | Ubuntu Server 24.04 LTS | serveur Linux inventorié par GLPI Agent | 10.77.10.30 |
+| VM | Système | Rôle dans les tests | Adresse | vCPU | Mémoire | Disque |
+|---|---|---|---|---|---|---|
+| `lab-proxmox` (Hyper-V) | Proxmox VE 9.2 | hôte des VM ; servira aussi au lot #15 (Proxmox VE à tester par les plugins) | 10.77.10.5 | 4 | 8 Go (statique) | 120 Go dynamique |
+| `lab-pfsense` (101) | pfSense CE 2.7.2 | pare-feu, réseau segmenté, futur équipement réseau de la cartographie (#8) | LAN 10.77.10.1 | 1 | 1 Go | 8 Go |
+| `lab-ad` (102, DC01) | Windows Server 2025 **Server Core**, évaluation 180 jours | contrôleur de `lab.local`, LDAP de GLPI, GPO de GLPI Agent, revues d'accès de GRC | 10.77.10.10 | 2 | 2 Go | 32 Go |
+| `lab-win11` (103, PC-WIN11) | Windows 11 Entreprise, évaluation 90 jours | poste joint au domaine, agent déployé par GPO | 10.77.10.20 | 2 | 2,5 Go (4 Go pendant l'installation) | 64 Go |
+| `lab-ubuntu` (104, srv-ubuntu) | Ubuntu Server 24.04 LTS | serveur Linux joint au domaine (realmd/SSSD), agent par cloud-init | 10.77.10.30 | 1 | 1 Go (2 Go pendant l'installation) | 10 Go |
 
-Tout est gratuit : versions d'évaluation de Microsoft, logiciels libres. Rien n'est écrit sur `C:` :
-disques, ISO, supports d'installation, secrets et état vont dans `F:\Dev\glpi-test-lab-data\vm`.
+Les disques des VM du labo sont en allocation fine (LVM-thin) : ils n'occupent que l'espace écrit.
+Tout est gratuit (évaluations Microsoft, logiciels libres) et rien n'est écrit sur `C:` : disque
+de Proxmox, ISO, supports, secrets et état sont dans `F:\Dev\glpi-test-lab-data\vm`.
 
-Les réglages sont dans [`vm/vms.psd1`](../vm/vms.psd1) (réseaux, mémoire, URL de GLPI, version de
-GLPI Agent…). Pour en changer sans toucher au fichier versionné, créez `vm/vms.local.psd1` (ignoré
-par git) avec seulement les clés à modifier, par exemple :
+Réglages : [`vm/vms.psd1`](../vm/vms.psd1). Pour en changer sans toucher au fichier versionné,
+créez `vm/vms.local.psd1` (ignoré par git) avec seulement les clés à modifier :
 
 ```powershell
 @{ Glpi = @{ UrlAgent = 'http://10.77.10.254:8102/' } }
@@ -22,95 +25,87 @@ par git) avec seulement les clés à modifier, par exemple :
 
 ## En bref : ce que vous lancez, dans l'ordre
 
-| # | Commande | Droits | Durée |
-|---|---|---|---|
-| 1 | `vm\00-prerequis-admin.ps1` | **administrateur, une seule fois** | 1 min (+ redémarrage si Hyper-V était absent) |
-| 2 | fermer puis rouvrir la session Windows | | |
-| 3 | `vm\10-telecharger-iso.ps1` | session ordinaire | 15 à 60 min (environ 18 Go) |
-| 4 | `vm\20-creer-vm.ps1` | session ordinaire | 1 à 2 h (installations sans intervention) |
-| 5 | installation de pfSense à la console | session ordinaire | 15 min, [voir plus bas](#pfsense--installation-à-la-console) |
-| 6 | `vm\30-configurer.ps1` | session ordinaire | 20 à 40 min |
+Aucune commande n'a besoin des droits administrateur sur ce PC : votre compte est déjà membre du
+groupe « Administrateurs Hyper-V ».
 
-Ensuite, au quotidien : `vm\lab-vm.ps1 up`, `down`, `status`, `reset <vm>`.
+| # | Commande | Durée |
+|---|---|---|
+| 1 | `.\vm\10-telecharger-iso.ps1` | 30 à 60 min la première fois (environ 23 Go) |
+| 2 | `.\vm\20-proxmox.ps1` | 30 à 45 min : VM Hyper-V, installation automatique de Proxmox, envoi des ISO |
+| 3 | `.\vm\30-creer-vm.ps1 -Nom lab-pfsense`, puis l'installation de pfSense à la console | 15 min, [voir plus bas](#pfsense--installation-à-la-console) |
+| 4 | `.\vm\30-creer-vm.ps1` | 1 à 2 h (installations sans intervention) |
+| 5 | `.\vm\40-configurer.ps1` | 30 à 60 min (domaine, annuaire, GPO, jonctions, instantanés) |
 
-Les scripts sont relançables : ils ne refont que ce qui manque. Une étape interrompue se reprend
-en relançant la même commande.
+Au quotidien : `.\vm\lab-vm.ps1 up`, `down`, `status`, `reset <vm>`.
+
+Les scripts sont relançables : ils ne refont que ce qui manque.
+
+Si Windows refuse les scripts (« l'exécution de scripts est désactivée ») :
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (sans droits administrateur), ou
+`powershell -ExecutionPolicy Bypass -File <script>`.
+
+### Seule étape administrateur, sur un PC neuf seulement
+
+Sur un autre PC où Hyper-V n'est pas actif ou où le compte n'est pas dans le groupe
+« Administrateurs Hyper-V », lancez une fois, dans une console PowerShell « en tant
+qu'administrateur », [`vm/00-prerequis-admin.ps1`](../vm/00-prerequis-admin.ps1) : il active
+Hyper-V (redémarrage éventuel) et ajoute le compte au groupe (fermer puis rouvrir la session). Il
+ne fait rien d'autre. **Sur le PC du mainteneur, c'est déjà fait.**
 
 ## Prérequis
 
-- Windows 11 Pro (ou Entreprise, Éducation), virtualisation activée dans le BIOS. Hyper-V est
-  activé par l'étape administrateur s'il ne l'est pas.
-- Environ 18 Go pour les ISO et 45 à 60 Go pour les disques des VM sur `F:` (disques dynamiques :
-  165 Go au plus si tous se remplissaient).
-- Mémoire : voir [plus bas](#mémoire-utilisée) (6 à 11 Go pour les quatre VM).
-- Les scripts s'exécutent avec Windows PowerShell 5.1, fourni avec Windows. Si Windows refuse de
-  lancer un script (« l'exécution de scripts est désactivée »), autorisez les scripts locaux pour
-  votre compte (sans droits administrateur) :
+- Windows 11 Pro (ou Entreprise, Éducation), virtualisation activée dans le BIOS, Hyper-V actif.
+- Docker Desktop (déjà utilisé par le socle) : il sert à préparer l'ISO d'installation
+  automatique de Proxmox avec l'outil officiel, dans un conteneur Debian.
+- Disque `F:` : environ 23 Go d'ISO, et 40 à 70 Go pour le VHDX dynamique de Proxmox (120 Go au
+  plus), qui contient aussi une copie des ISO.
+- Mémoire : 8 Go réservés à la VM Proxmox quand elle tourne (voir [Mémoire](#mémoire)).
 
-  ```powershell
-  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-  ```
+## Réseau
 
-  ou lancez chaque script avec `powershell -ExecutionPolicy Bypass -File <script>`.
+```
+ Internet
+    │  (NAT et DHCP de Windows)
+ « Default Switch » Hyper-V ── vmbr1 (WAN, DHCP) ── WAN de pfSense (vtnet0)
+                                                      │
+                                                   pfSense 10.77.10.1
+                                                      │
+ « lab-interne » Hyper-V ───── vmbr0 (LAN 10.77.10.0/24) ── LAN de pfSense (vtnet1), AD, Windows 11, Ubuntu
+    │                           Proxmox 10.77.10.5 (administration, API, DHCP réservé à l'hôte)
+ Windows (hôte) 10.77.10.254 ── Docker Desktop / Swarm : instances GLPI du labo (ports 8100-8199)
+```
 
-## Étape 1 : l'unique étape en administrateur
+- **WAN** : le commutateur « Default Switch », créé par Windows, fournit NAT et DHCP sans droits
+  administrateur. Il porte le pont Proxmox `vmbr1` et le WAN de pfSense.
+- **LAN** : le commutateur interne « lab-interne » est créé par `20-proxmox.ps1` (un membre
+  d'« Administrateurs Hyper-V » le peut sans élévation). Il porte le pont `vmbr0`, sur lequel
+  Proxmox a son adresse d'administration. Windows ne peut pas fixer l'adresse de sa carte
+  `vEthernet (lab-interne)` sans élévation : c'est donc le DHCP de Proxmox (dnsmasq, installé au
+  premier démarrage) qui lui donne **10.77.10.254** par une réservation sur son adresse MAC, **sans
+  passerelle ni DNS**, pour que seul le trafic du labo passe par là. Windows redemande une
+  adresse toutes les 5 minutes tant qu'il n'en a pas.
+- **Usurpation d'adresse MAC** activée sur les deux cartes de la VM Proxmox : sans elle, Hyper-V
+  bloque les trames des VM imbriquées
+  ([doc Microsoft](https://learn.microsoft.com/virtualization/hyper-v-on-windows/user-guide/enable-nested-virtualization)).
+- **Docker et GLPI** : les VM joignent les instances GLPI du labo sur `http://10.77.10.254:<port>`
+  (Docker Desktop publie les ports sur toutes les cartes de l'hôte ; la règle « Docker Desktop
+  Backend » du pare-feu de Windows les autorise sur le profil « Public », celui de cette carte).
+  Dans l'autre sens, les conteneurs GLPI joignent l'AD (`10.77.10.10:636`) à travers l'hôte, qui
+  est directement sur le LAN.
 
-Tout ce qui exige les droits administrateur est regroupé dans **un seul script**,
-[`vm/00-prerequis-admin.ps1`](../vm/00-prerequis-admin.ps1). Il ne crée rien d'autre que ce qui est
-listé ci-dessous et peut être relancé sans risque.
+### Plages vérifiées
 
-1. Menu Démarrer, tapez « PowerShell », clic droit sur **Windows PowerShell**, puis
-   **Exécuter en tant qu'administrateur**.
-2. Dans cette fenêtre :
+Relevé du 22/11/2026 sur ce PC : Docker utilise 172.17.0.0/16 à 172.30.0.0/16, 192.168.65.0/24
+(Docker Desktop), 192.168.77.0/24, 10.210.0.0/16 (réserve de Docker Swarm) et 10.211.0.0/16 ;
+Windows utilise 172.25.240.0/20 (« Default Switch », plage choisie par Windows) et 172.18.96.0/20
+(WSL). Le LAN du labo, **10.77.10.0/24**, ne chevauche aucune de ces plages. Le WAN suit la plage
+de « Default Switch », que Windows peut changer au redémarrage : seuls Proxmox (`vmbr1`) et le WAN
+de pfSense, tous deux en DHCP, l'utilisent ; rien dans le labo n'en dépend.
 
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File F:\Dev\glpi-test-lab-vm\vm\00-prerequis-admin.ps1
-   ```
+Remarque : le réseau Docker `assetsign-issue115` (172.25.0.0/16, hors labo) recouvre déjà la plage
+de « Default Switch » ; cela ne gêne pas le labo, mais ce réseau de test peut être supprimé.
 
-   (adaptez le chemin si le dépôt est cloné ailleurs). Pour créer aussi les VM dans la foulée,
-   ajoutez `-CreerVm` (après avoir téléchargé les ISO, étape 3).
-3. Lisez le **bilan** affiché à la fin :
-   - « REDÉMARRAGE DE WINDOWS NÉCESSAIRE » : Hyper-V vient d'être activé ; redémarrez puis relancez
-     la même commande ;
-   - « FERMEZ PUIS ROUVREZ VOTRE SESSION WINDOWS » : votre compte vient d'entrer dans le groupe
-     « Administrateurs Hyper-V » ; l'appartenance n'est prise en compte qu'à la session suivante.
-
-Ce que fait le script :
-
-| Action | Pourquoi | Commande Microsoft |
-|---|---|---|
-| Active Hyper-V s'il ne l'est pas | hyperviseur des VM | `Enable-WindowsOptionalFeature -FeatureName Microsoft-Hyper-V -All` |
-| Vérifie les plages d'adresses | ne pas casser les réseaux de l'hôte, de Docker ni un NAT existant | `Get-NetIPAddress`, `Get-NetRoute`, `docker network inspect`, `Get-NetNat` |
-| Crée le commutateur interne `lab-interne`, adresse de l'hôte 10.77.10.254/24 | LAN du labo ; l'hôte y joint l'AD (LDAP) et les VM y joignent GLPI | `New-VMSwitch -SwitchType Internal`, `New-NetIPAddress` |
-| Crée le commutateur interne `lab-nat`, adresse 10.77.0.1/24, et le NAT `lab-nat` | sortie Internet du WAN de pfSense | `New-VMSwitch`, `New-NetNat` |
-| Ouvre TCP 8100-8199 depuis 10.77.0.0/24 et 10.77.10.0/24 | les agents GLPI des VM joignent les instances GLPI du labo | `New-NetFirewallRule` |
-| Range les VM et disques Hyper-V par défaut sous `F:\Dev\glpi-test-lab-data\vm\machines` | rien sur `C:` | `Set-VMHost` |
-| Crée le gardien local `UntrustedGuardian` | protège la clé du TPM virtuel exigé par Windows 11 | `New-HgsGuardian -GenerateCertificates` |
-| Ajoute votre compte au groupe « Administrateurs Hyper-V » (SID S-1-5-32-578) | tous les autres scripts tournent ensuite **sans** élévation | `Add-LocalGroupMember` |
-
-Pour ne pas toucher au groupe : `-SansGroupe` (il faudra alors lancer tous les scripts en
-administrateur). Pour ajouter un autre compte : `-Utilisateur MACHINE\compte`.
-
-### Plages d'adresses retenues
-
-Relevé fait sur ce PC le 22/11/2026 : Docker utilise 172.17.0.0/16 à 172.30.0.0/16,
-192.168.77.0/24, 10.210.0.0/24 et 10.211.0.0/16, et réserve 10.210.0.0/16 aux réseaux de Docker
-Swarm ; Windows utilise 172.25.240.0/20 (« Default Switch ») et 172.18.96.0/20 (WSL). Le labo prend
-donc **10.77.0.0/24** (NAT) et **10.77.10.0/24** (LAN), libres. Le script refait la vérification à
-chaque lancement et s'arrête en cas de chevauchement : changez alors `Reseau` dans
-`vm\vms.local.psd1`.
-
-### Un autre réseau NAT existe déjà
-
-Windows n'accepte qu'**un seul** réseau NAT (WinNAT) par hôte
-([doc Microsoft](https://learn.microsoft.com/windows-server/virtualization/hyper-v/setup-nat-network)).
-Si le bilan signale un NAT existant, le script ne le touche pas et ne crée pas celui du labo :
-pfSense n'aura alors pas Internet (le reste du labo fonctionne). Deux solutions, à votre choix :
-supprimer l'ancien NAT s'il ne sert plus (`Get-NetNat`, puis `Remove-NetNat -Name <nom>` en
-administrateur) et relancer le script, ou indiquer dans `vms.local.psd1` une plage `Nat.Prefixe`
-contenue dans le NAT existant.
-
-## Étape 3 : téléchargement des ISO
+## Étape 1 : téléchargement des ISO
 
 ```powershell
 .\vm\10-telecharger-iso.ps1
@@ -118,275 +113,265 @@ contenue dans le NAT existant.
 
 | Fichier | Source officielle | Vérification |
 |---|---|---|
-| Windows Server 2025, évaluation 180 jours (en-US) | [Centre d'évaluation Microsoft](https://www.microsoft.com/evalcenter/download-windows-server-2025), lien direct de la page | Microsoft ne publie pas de somme : SHA-256 relevée au premier téléchargement (`iso\SHA256SUMS.lab`) puis contrôlée ensuite |
-| Windows 11 Entreprise, évaluation 90 jours (en-US) | [Centre d'évaluation Microsoft](https://www.microsoft.com/evalcenter/download-windows-11-enterprise) | idem |
-| Ubuntu Server 24.04 LTS (dernière version ponctuelle) | [releases.ubuntu.com/24.04](https://releases.ubuntu.com/24.04/) | `SHA256SUMS` officiel |
-| pfSense CE 2.7.2 (installeur hors ligne) | [miroir Netgate](https://atxfiles.netgate.com/mirror/downloads/) | fichier `.sha256` officiel |
-| GLPI Agent 1.21 (MSI et installeur Linux) | [publication GitHub](https://github.com/glpi-project/glpi-agent/releases/tag/1.21) | `glpi-agent-1.21.sha256` officiel **et** somme épinglée dans `vms.psd1` |
+| Proxmox VE 9.2-1 | [enterprise.proxmox.com/iso](https://enterprise.proxmox.com/iso/) | `SHA256SUMS` officiel |
+| Pilotes VirtIO 0.1.302 (projet Fedora) | [fedorapeople.org](https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.302-1/) | pas de somme publiée pour l'ISO : relevée au premier téléchargement |
+| Windows Server 2025, évaluation 180 jours (en-US) | [Centre d'évaluation](https://www.microsoft.com/evalcenter/download-windows-server-2025) | pas de somme publiée : relevée (`iso\SHA256SUMS.lab`) puis contrôlée |
+| Windows 11 Entreprise, évaluation 90 jours (en-US) | [Centre d'évaluation](https://www.microsoft.com/evalcenter/download-windows-11-enterprise) | idem |
+| Ubuntu Server 24.04 LTS | [releases.ubuntu.com/24.04](https://releases.ubuntu.com/24.04/) | `SHA256SUMS` officiel |
+| pfSense CE 2.7.2 (installeur hors ligne) | [miroir Netgate](https://atxfiles.netgate.com/mirror/downloads/) | `.sha256` officiel |
+| GLPI Agent 1.21 (MSI, installeur Linux) | [GitHub](https://github.com/glpi-project/glpi-agent/releases/tag/1.21) | `.sha256` officiel et somme épinglée |
 
-Les ISO Windows sont en anglais (comptes intégrés `Administrator`, groupe `Administrators`,
-prévisibles pour les scripts) avec réglages régionaux, fuseau et clavier français.
+Si un lien direct ne répond plus (formulaire Microsoft imposé, par exemple), le script affiche la
+page à ouvrir et le nom exact attendu dans `F:\Dev\glpi-test-lab-data\vm\iso`, puis attend le
+fichier.
 
-Si un lien direct de Microsoft ne répond plus (formulaire d'inscription imposé, lien changé), le
-script affiche la page à ouvrir et le **nom de fichier exact** attendu dans
-`F:\Dev\glpi-test-lab-data\vm\iso`, puis attend que le fichier y soit déposé. `-SansAttente` signale
-seulement le manque.
+Les ISO Windows sont en anglais (comptes intégrés `Administrator`, groupe `Administrators`) avec
+réglages régionaux, fuseau et clavier français. Pour pfSense, Netgate ne distribue plus les
+versions suivantes que par un installeur en ligne ([pfsense.org/download](https://www.pfsense.org/download/)) ;
+la 2.7.2 hors ligne se met à jour ensuite depuis son interface.
 
-Sur pfSense : depuis la 2.7.2, Netgate distribue les nouvelles versions de pfSense CE par le
-« Netgate Installer », un installeur en ligne téléchargé depuis sa boutique (gratuit, avec
-compte) : [pfsense.org/download](https://www.pfsense.org/download/). L'installeur hors ligne 2.7.2
-reste sur le miroir officiel avec sa somme : c'est lui qui est téléchargé automatiquement. Après
-installation, pfSense peut être mis à jour depuis son interface (System > Update).
-
-## Étape 4 : création et installation des VM
+## Étape 2 : Proxmox VE
 
 ```powershell
-.\vm\20-creer-vm.ps1                 # toutes les VM
-.\vm\20-creer-vm.ps1 -Nom lab-ubuntu # une seule
+.\vm\20-proxmox.ps1
 ```
 
-Pour chaque VM : disque VHDX dynamique, génération 2, démarrage sécurisé (modèle
-`MicrosoftWindows` pour Windows, `MicrosoftUEFICertificateAuthority` pour Ubuntu, désactivé pour
-pfSense comme le demande [Netgate](https://docs.netgate.com/pfsense/en/latest/recipes/virtualize-hyper-v.html)),
-TPM virtuel pour Windows 11, points de contrôle automatiques désactivés. Puis :
+1. Crée le commutateur interne « lab-interne ».
+2. Génère `answer.toml` et le script de premier démarrage sous `…\vm\proxmox\` (mot de passe
+   root généré, clé SSH du labo) et prépare l'ISO d'installation automatique avec l'outil officiel
+   `proxmox-auto-install-assistant prepare-iso --fetch-from iso`
+   ([installation automatique](https://pve.proxmox.com/wiki/Automated_Installation)), dans un
+   conteneur `debian:trixie` (dépôt `pve-no-subscription` et clé officielle, somme vérifiée :
+   [dépôts](https://pve.proxmox.com/wiki/Package_Repositories)). Le fichier de réponses est validé
+   par `validate-answer` avant.
+3. Crée la VM Hyper-V `lab-proxmox` : génération 2, 4 vCPU, 8 Go **statiques** (obligatoire pour
+   l'imbrication), `Set-VMProcessor -ExposeVirtualizationExtensions $true`, deux cartes à adresse
+   MAC fixe avec usurpation d'adresse MAC, VHDX dynamique de 120 Go, démarrage sécurisé désactivé.
+4. Démarre la VM : l'entrée « Automated Installation » est choisie seule après 10 s. Installation
+   sur ext4 + LVM (le stockage `local-lvm` en LVM-thin permet les instantanés) ; au premier
+   démarrage, le script embarqué ajoute le pont WAN `vmbr1` en DHCP, désactive les dépôts
+   « enterprise » (sans abonnement), installe dnsmasq pour la réservation DHCP de l'hôte, et crée
+   le jeton d'API `root@pam!lab`.
+5. Lit en SSH le jeton et l'autorité de certification de Proxmox (`pve-root-ca.pem`) : les appels
+   d'API vérifient le certificat. Le jeton est rangé dans `secrets.json` et dans un fichier
+   d'en-tête lu par curl, pour qu'il n'apparaisse pas sur la ligne de commande.
+6. Envoie les ISO du labo dans le stockage `local` de Proxmox par l'API (`…/storage/local/upload`).
 
-- **Windows Server et Windows 11** : un petit ISO contenant `autounattend.xml` (généré depuis
-  [`vm/modeles/autounattend-windows.xml`](../vm/modeles/autounattend-windows.xml)) est joint à la
-  VM ; Windows Setup le lit tout seul
-  ([ordre de recherche](https://learn.microsoft.com/windows-hardware/manufacture/desktop/windows-setup-automation-overview)).
-  Le script appuie sur Entrée au clavier virtuel pendant « Press any key to boot from CD or DVD ».
-  Partitions UEFI, langue, fuseau, nom de machine, mot de passe administrateur : rien à saisir.
-- **Ubuntu** : un ISO `CIDATA` (cloud-init NoCloud) contient la configuration
-  [autoinstall](https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html)
-  générée depuis [`vm/modeles/ubuntu-user-data.yml`](../vm/modeles/ubuntu-user-data.yml), l'installeur
-  Linux de GLPI Agent et son script d'installation. Subiquity demande une confirmation avant
-  d'écrire sur le disque sauf si `autoinstall` figure sur la ligne de commande du noyau
-  ([démarrage rapide](https://canonical-subiquity.readthedocs-hosted.com/en/latest/howto/autoinstall-quickstart.html)) :
-  le script ouvre la ligne de commande de GRUB (touche `c`) et tape
-  `linux /casper/vmlinuz autoinstall ---`, `initrd /casper/initrd`, `boot`. La VM s'éteint en fin
-  d'installation ; le script éjecte les ISO et la redémarre. Si GRUB n'est pas encore affiché au
-  moment de la saisie (PC lent), augmentez `DelaiGrubSecondes` dans `vms.local.psd1`.
-- **pfSense** : la VM démarre sur l'ISO ; l'installation se fait à la console (étape 5).
+Interface web : **https://10.77.10.5:8006/** (utilisateur `root`, royaume « Linux PAM », mot de
+passe `RootProxmox` de `secrets.json`).
 
-`-SupportsSeulement` génère seulement les supports (dans `…\vm\supports\<vm>\`) pour les relire,
-sans Hyper-V ni droits. `-SansAttente` lance les installations sans attendre leur fin.
-
-Pour suivre une installation : `vmconnect.exe localhost lab-ad` (ou le Gestionnaire Hyper-V).
-
-## pfSense : installation à la console
-
-L'installeur de pfSense est un programme en mode texte : il n'a pas de fichier de réponses
-documenté par Netgate, d'où ces étapes manuelles (une quinzaine de minutes). La VM a deux cartes :
-la première (`hn0`) sur `lab-nat` = **WAN**, la seconde (`hn1`) sur `lab-interne` = **LAN**.
-
-1. Ouvrez la console : `vmconnect.exe localhost lab-pfsense`.
-2. Installeur pfSense CE 2.7.2 (les intitulés peuvent varier légèrement selon la version) :
-   accepter la licence (**Accept**), **Install**, disposition du clavier (par exemple
-   **French**), partitionnement **Auto (ZFS)**, **Install**, type **stripe**, cocher le disque
-   (barre d'espace), confirmer (**YES**), « Manual configuration » : **No**, puis **Reboot**.
-   La VM redémarre sur son disque (le disque passe avant le DVD dans l'ordre de démarrage).
-3. Affectation des interfaces (doc Netgate « Virtualizing with Hyper-V ») : VLAN **n**, WAN
-   **hn0**, LAN **hn1**, confirmer **y**.
-4. Menu de la console, option **2) Set interface(s) IP address** :
-   - **1 (WAN)** : DHCP **n**, adresse **10.77.0.2**, masque **24**, passerelle **10.77.0.1**,
-     IPv6 **aucune** (Entrée), revenir en HTTP **n** ;
-   - **2 (LAN)** : adresse **10.77.10.1**, masque **24**, pas de passerelle (Entrée), IPv6
-     **aucune**, serveur DHCP **y**, plage **10.77.10.100** à **10.77.10.199**, revenir en HTTP **n**.
-5. Depuis l'hôte (qui est sur le LAN en 10.77.10.254), ouvrez **https://10.77.10.1/**
-   (certificat auto-signé). Identifiants d'usine : `admin` / `pfsense`. L'assistant :
-   - nom `pfsense`, domaine **lab.local**, serveur DNS : laissez vide (le résolveur de pfSense
-     interroge directement Internet) ;
-   - fuseau **Europe/Paris** ; WAN et LAN : gardez les valeurs de l'étape 4 ;
-   - nouveau mot de passe `admin` : la valeur `PfSense` de `F:\Dev\glpi-test-lab-data\vm\secrets.json`.
-6. **Services > DNS Resolver > Domain Overrides** : domaine **lab.local**, serveur **10.77.10.10**
-   (les machines du LAN résolvent ainsi le domaine).
-7. **Services > DHCP Server > LAN** : serveur DNS **10.77.10.10** (postes ajoutés plus tard).
-8. Pour la cartographie (#8), **Services > SNMP** : activer, communauté en lecture = valeur
-   `SnmpPfSense` de `secrets.json`, interface d'écoute **LAN**.
-9. **Diagnostics > Backup & Restore** : téléchargez `config.xml` et rangez-le dans
-   `F:\Dev\glpi-test-lab-data\vm\pfsense\config.xml`. Une réinstallation se termine alors par
-   « Restore Backup » de ce fichier au lieu des étapes 4 à 8.
-10. `.\vm\30-configurer.ps1 -Nom lab-pfsense` vérifie que pfSense répond et prend le point de
-    contrôle « propre ».
-
-Variante récente : avec le Netgate Installer (pfSense CE 2.8 et suivants), WAN et LAN se
-règlent pendant l'installation (écran « Network Setup » de la
-[doc Netgate](https://docs.netgate.com/pfsense/en/latest/install/install-walkthrough.html)) ;
-il lui faut Internet sur le WAN, que le NAT `lab-nat` fournit. Déposez l'ISO dans le dossier
-`iso` et indiquez son nom dans `vms.local.psd1` (`Iso.PfSense.Fichier`).
-
-## Étape 6 : configuration après installation
+## Étape 3 : pfSense, installation à la console
 
 ```powershell
-.\vm\30-configurer.ps1
+.\vm\30-creer-vm.ps1 -Nom lab-pfsense
 ```
 
-Les VM Windows sont pilotées par
-[PowerShell Direct](https://learn.microsoft.com/virtualization/hyper-v-on-windows/user-guide/powershell-direct)
-(par le bus de la VM, sans réseau), Ubuntu par SSH avec la clé du labo
-(`…\vm\ssh\lab_ed25519`).
+La VM 101 est créée par l'API (1 vCPU, 1 Go, 8 Go) et démarre sur l'ISO. Son installeur est en
+mode texte et n'a pas de fichier de réponses documenté par Netgate, d'où ces étapes manuelles,
+dans l'interface de Proxmox (**VM 101 > Console**) :
 
-- **AD (DC01)** : adresse fixe, rôles AD DS et AD CS,
-  [nouvelle forêt](https://learn.microsoft.com/powershell/module/addsdeployment/install-addsforest)
-  `lab.local` (NetBIOS `LAB`) avec DNS intégré, redirecteur DNS vers pfSense,
-  [autorité de certification d'entreprise](https://learn.microsoft.com/powershell/module/adcsdeployment/install-adcscertificationauthority)
-  `LAB-CA` (le contrôleur reçoit ainsi un certificat et répond en LDAPS), puis l'annuaire de
-  démonstration. Le certificat de `LAB-CA` est copié dans `…\vm\ca\lab-ca.cer` et `lab-ca.pem`.
-- **Windows 11** : adresse fixe, DNS de l'AD,
+1. Installeur pfSense CE 2.7.2 (intitulés à peu près identiques selon la version) : **Accept**,
+   **Install**, clavier (par exemple **French**), **Auto (ZFS)**, **Install**, **stripe**, cocher
+   le disque (barre d'espace), **YES**, « Manual configuration » **No**, **Reboot**.
+2. Affectation des interfaces : VLAN **n**, WAN **vtnet0**, LAN **vtnet1**, **y**
+   (vtnet0 est sur `vmbr1`, le WAN ; vtnet1 sur `vmbr0`, le LAN).
+3. Menu **2) Set interface(s) IP address**, **2 (LAN)** : **10.77.10.1**, masque **24**, pas de
+   passerelle, pas d'IPv6, serveur DHCP **n** (le DHCP du LAN est celui de Proxmox, réservé à
+   l'hôte ; les VM ont des adresses fixes), revenir en HTTP **n**. Le WAN reste en DHCP.
+4. Depuis l'hôte, **https://10.77.10.1/** (certificat auto-signé), `admin` / `pfsense`, assistant :
+   nom `pfsense`, domaine **lab.local**, DNS vide, fuseau **Europe/Paris**, WAN et LAN inchangés,
+   **décocher « Block RFC1918 Private Networks »** sur le WAN (le WAN est lui-même en 172.25.x),
+   nouveau mot de passe `admin` : valeur `PfSense` de `secrets.json`.
+5. **Services > DNS Resolver > Domain Overrides** : **lab.local** vers **10.77.10.10**.
+6. Pour la cartographie (#8) : **Services > SNMP**, communauté en lecture = `SnmpPfSense` de
+   `secrets.json`, interface **LAN**.
+7. **Diagnostics > Backup & Restore** : téléchargez `config.xml` dans
+   `F:\Dev\glpi-test-lab-data\vm\pfsense\config.xml` (une réinstallation se termine alors par
+   « Restore Backup » au lieu des étapes 3 à 6).
+
+Référence : [pfSense sur Proxmox](https://docs.netgate.com/pfsense/en/latest/recipes/virtualize-proxmox-ve.html).
+
+## Étape 4 : VM Windows et Ubuntu
+
+```powershell
+.\vm\30-creer-vm.ps1
+```
+
+Chaque VM est créée par `POST /nodes/pve/qemu`
+([paramètres](https://pve.proxmox.com/pve-docs/qm.1.html)) : disque VirtIO SCSI sur `local-lvm`,
+carte VirtIO sur `vmbr0`, agent invité QEMU activé. Pour Windows, suivant les bonnes pratiques de
+Proxmox ([Windows Server 2025](https://pve.proxmox.com/wiki/Windows_2025_guest_best_practices),
+[Windows 11](https://pve.proxmox.com/wiki/Windows_11_guest_best_practices)) : UEFI (OVMF) avec
+démarrage sécurisé et clés Microsoft préchargées, ISO VirtIO jointe, et **TPM 2.0 virtuel** pour
+Windows 11. Windows 11 démarre son installation avec 4 Go (exigés par l'installeur), puis la VM
+redescend à 2,5 Go : aucune clé de contournement (`LabConfig`) n'est nécessaire.
+
+- **Windows** : un petit ISO `LABSUPPORT` contient `autounattend.xml` (partitions UEFI, image,
+  langue, nom de machine, compte ; modèle [`vm/modeles/autounattend-windows.xml`](../vm/modeles/autounattend-windows.xml)),
+  les pilotes VirtIO à charger pendant l'installation (`DriverPaths` : disque `vioscsi`, réseau
+  `NetKVM`, port série `vioserial`), et l'installation de l'agent invité QEMU à la phase
+  specialize (MSI de l'ISO VirtIO). Pour l'AD, il porte aussi l'annuaire de démonstration, le
+  script de GPO et le MSI de GLPI Agent. Le script appuie sur Entrée par l'API (`sendkey`) pendant
+  « Press any key to boot from CD or DVD ». Fin de l'installation = agent invité joignable.
+- **Ubuntu** : ISO `CIDATA` (cloud-init NoCloud, [autoinstall](https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html)) ;
+  la ligne de commande GRUB (`linux /casper/vmlinuz autoinstall ---`) est tapée par `sendkey`,
+  pour éviter la confirmation de Subiquity
+  ([démarrage rapide](https://canonical-subiquity.readthedocs-hosted.com/en/latest/howto/autoinstall-quickstart.html)).
+  La VM s'éteint en fin d'installation ; le script retire les ISO et la redémarre. Ubuntu a
+  besoin de pfSense (paquets) : le script attend qu'il réponde.
+
+`-SupportsSeulement` génère seulement les supports (dans `…\vm\supports\<vm>\`) pour les relire.
+
+## Étape 5 : configuration
+
+```powershell
+.\vm\40-configurer.ps1
+```
+
+PowerShell Direct n'existe pas dans une VM imbriquée : les VM Windows sont pilotées par l'**agent
+invité QEMU** (`agent/exec` de l'API, [doc](https://pve.proxmox.com/wiki/Qemu-guest-agent)),
+Ubuntu par SSH avec la clé du labo.
+
+- **AD (DC01, Server Core)** : adresse fixe, mises à jour automatiques coupées (stratégie
+  `NoAutoUpdate`), rôles AD DS, AD CS et GPMC, [nouvelle forêt](https://learn.microsoft.com/powershell/module/addsdeployment/install-addsforest)
+  `lab.local` (NetBIOS `LAB`) avec DNS, redirecteur vers pfSense, [autorité d'entreprise](https://learn.microsoft.com/powershell/module/adcsdeployment/install-adcscertificationauthority)
+  `LAB-CA` (LDAPS), annuaire de démonstration, **GPO de GLPI Agent**, certificat de `LAB-CA` copié
+  dans `…\vm\ca\`.
+- **Windows 11** : adresse fixe, DNS de l'AD, mises à jour automatiques, indexation (service
+  Windows Search) et veille prolongée coupées,
   [jonction au domaine](https://learn.microsoft.com/powershell/module/microsoft.powershell.management/add-computer)
-  dans `OU=Postes,OU=Ordinateurs,OU=Lab,DC=lab,DC=local`, puis GLPI Agent.
-- **Ubuntu** : GLPI Agent s'installe tout seul au premier démarrage ; le script vérifie le service
-  et relance l'installation si besoin (journal dans la VM : `/var/log/lab-glpi-agent.log`).
-- Chaque VM configurée est arrêtée proprement et reçoit le **point de contrôle « propre »**
-  (`-NouveauPointDeControle` pour le remplacer, `-SansPointDeControle` pour s'en passer).
+  dans `OU=Postes`, redémarrage : la GPO installe GLPI Agent au démarrage, et l'agent envoie tout
+  de suite un inventaire. Le script vérifie la présence de l'agent.
+- **Ubuntu** : GLPI Agent (installé au premier démarrage par cloud-init) vérifié, puis jonction
+  au domaine par realmd et SSSD dans `OU=Serveurs`
+  ([doc Ubuntu](https://documentation.ubuntu.com/server/how-to/sssd/with-active-directory/)).
+- Chaque VM configurée est arrêtée proprement et reçoit l'**instantané « propre »**
+  (`-NouvelInstantane` pour le remplacer).
+
+### Déploiement de GLPI Agent par GPO
+
+Script [`vm/invite/gpo-glpi-agent.ps1`](../vm/invite/gpo-glpi-agent.ps1), exécuté sur l'AD :
+
+1. le MSI officiel épinglé (`GLPI-Agent-1.21-x64.msi`, somme vérifiée) est copié dans
+   `\\lab.local\NETLOGON\glpi-agent\` ;
+2. un script `installer-glpi-agent.cmd`, au même endroit, lance
+   `msiexec /i … /quiet SERVER=<UrlAgent> TAG=labo-vm RUNNOW=1 ADD_FIREWALL_EXCEPTION=1 EXECMODE=1 ADDLOCAL=feat_AGENT,feat_NETINV`
+   ([propriétés du MSI](https://glpi-agent.readthedocs.io/en/latest/installation/windows-command-line.html)),
+   seulement si l'agent est absent (clé `HKLM\SOFTWARE\GLPI-Agent`, où le MSI range sa
+   configuration) ;
+3. la GPO **« Labo - GLPI Agent »** déclare ce script comme script de démarrage de l'ordinateur
+   (`Machine\Scripts\scripts.ini`, extensions côté client des scripts,
+   [MS-GPSCR](https://learn.microsoft.com/openspecs/windows_protocols/ms-gpscr/)) et est liée à
+   `OU=Postes,OU=Ordinateurs,OU=Lab` ([New-GPO, New-GPLink](https://learn.microsoft.com/powershell/module/grouppolicy/)).
+
+Pourquoi un script de démarrage et pas une GPO « Installation de logiciel » : celle-ci ne passe
+pas de propriétés (`SERVER`, `TAG`, `RUNNOW`) au MSI sans fichier de transformation `.mst`.
+
+Changer d'instance GLPI : `Glpi.UrlAgent` dans `vms.local.psd1`, puis relancer
+`40-configurer.ps1 -Nom lab-ad` (le script de démarrage est réécrit ; un poste déjà équipé garde
+sa configuration, à changer dans `HKLM\SOFTWARE\GLPI-Agent\server` ou par réinstallation).
+
+Vérification : après le redémarrage qui suit la jonction, **PC-WIN11** apparaît dans **Parc >
+Ordinateurs** de l'instance GLPI visée (étiquette `labo-vm`) ; dans la VM, le journal de
+l'installation est `C:\Windows\Temp\glpi-agent-gpo.log`.
 
 ### Annuaire de démonstration
 
 Défini dans [`vm/modeles/annuaire-demo.psd1`](../vm/modeles/annuaire-demo.psd1) (données fictives,
-relançable sans doublon) :
-
-- OU `Lab` : `Utilisateurs` (Direction, Securite, Informatique, RH, Finance, Commercial),
-  `Groupes`, `Comptes de service`, `Comptes a privileges`, `Ordinateurs` (Postes, Serveurs),
-  `Desactives` ;
-- 15 groupes globaux de sécurité, dont `GG-RSSI`, `GG-DPO`, `GG-Comite-Securite`,
-  `GG-Techniciens`, `GG-Support-N1`, `GG-Admins-Serveurs` et les groupes de profils GLPI
-  (`GG-GLPI-Admins`, `GG-GLPI-Techniciens`, `GG-GLPI-Utilisateurs`, ce dernier imbriquant les
-  groupes métier) ;
-- 15 comptes de personnes avec fonction, service, responsable, courriel et téléphone fictif
-  (tranche 01 99 00, réservée à la fiction) : directrice générale, RSSI (`s.bernard`), DPO
-  (`t.dubois`), analyste sécurité, administrateur systèmes, techniciens N1 et N2, RH, finance,
-  commercial ;
-- cas pour les revues d'accès : compte à privilèges séparé (`adm.jfournier`, Admins du domaine),
-  compte à privilèges oublié dont le mot de passe n'expire jamais (`admin.ancien`), stagiaire au
-  compte expiré (`h.garnier`), deux départs désactivés encore membres de groupes (`f.chevalier`,
-  `g.mercier`, ce dernier dans `GG-Admins-Serveurs`) ;
-- comptes de service : `svc-glpi-ldap` (liaison LDAP de GLPI), `svc-sauvegarde` (Opérateurs de
-  sauvegarde), `svc-sql` (avec SPN), `svc-supervision`.
-
-Mots de passe : `UtilisateursDemo` (tous les comptes de démonstration) et `CompteLdapGlpi`
-(`svc-glpi-ldap`) dans `secrets.json`.
+relançable sans doublon) : OU `Lab` (`Utilisateurs` par service, `Groupes`, `Comptes de service`,
+`Comptes a privileges`, `Ordinateurs/Postes`, `Ordinateurs/Serveurs`, `Desactives`), 15 groupes
+(RSSI, DPO, comité sécurité, techniciens, support N1, administrateurs serveurs, profils GLPI…),
+15 comptes de personnes (directrice, RSSI `s.bernard`, DPO `t.dubois`, techniciens…), et les cas
+utiles aux revues d'accès : compte à privilèges séparé (`adm.jfournier`), compte à privilèges
+oublié sans expiration de mot de passe (`admin.ancien`), stagiaire expiré (`h.garnier`), départs
+désactivés encore membres de groupes (`f.chevalier`, `g.mercier`), comptes de service
+(`svc-glpi-ldap`, `svc-sauvegarde`, `svc-sql` avec SPN, `svc-supervision`). Téléphones dans la
+tranche 01 99 00, réservée à la fiction.
 
 ## Brancher GLPI sur l'AD (LDAP)
 
-Pour une **nouvelle** forêt, Windows Server 2025 impose la signature LDAP et refuse donc les
-liaisons simples en clair sur le port 389
-([doc Microsoft](https://learn.microsoft.com/windows-server/identity/ad-ds/ldap-signing)). GLPI se
-connecte par une liaison simple : il faut **LDAPS** (port 636), fourni par l'autorité `LAB-CA`. Le
-labo ne baisse pas ce réglage de sécurité.
+Une **nouvelle** forêt Windows Server 2025 impose la signature LDAP : les liaisons simples en clair
+sur 389 sont refusées ([doc Microsoft](https://learn.microsoft.com/windows-server/identity/ad-ds/ldap-signing)).
+GLPI utilise une liaison simple : il faut **LDAPS** (636), fourni par `LAB-CA`. Le labo ne baisse
+pas ce réglage.
 
-Dans GLPI : **Configuration > Authentification > Annuaires LDAP > Ajouter** :
+**Configuration > Authentification > Annuaires LDAP > Ajouter** :
 
 | Champ | Valeur |
 |---|---|
-| Nom | `lab.local` |
 | Serveur | `ldaps://dc01.lab.local` |
 | Port | `636` |
 | BaseDN | `DC=lab,DC=local` |
-| DN du compte (pour les connexions non anonymes) | `svc-glpi-ldap@lab.local` |
-| Mot de passe du compte | valeur `CompteLdapGlpi` de `secrets.json` |
+| DN du compte | `svc-glpi-ldap@lab.local` |
+| Mot de passe | `CompteLdapGlpi` de `secrets.json` |
 | Filtre de connexion | `(&(objectClass=user)(objectCategory=person)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))` |
 | Champ de l'identifiant | `samaccountname` |
 | Champ de synchronisation | `objectguid` |
 
-Le conteneur GLPI doit, pour que TLS aboutisse :
-
-1. résoudre `dc01.lab.local` en `10.77.10.10` (entrée `extra_hosts` du service GLPI, ou DNS) ;
-2. faire confiance à `LAB-CA` : monter `F:\Dev\glpi-test-lab-data\vm\ca\lab-ca.pem` dans le
-   conteneur et le désigner dans `/etc/ldap/ldap.conf` (`TLS_CACERT /chemin/lab-ca.pem`).
-
-Ces deux réglages concernent la pile GLPI (`stack/`, lot #2) et sont à y ajouter. Le conteneur
-joint `10.77.10.10` à travers l'hôte, qui est sur le LAN du labo.
-
-Contrôle rapide depuis l'hôte : `Test-NetConnection 10.77.10.10 -Port 636`.
-
-## GLPI Agent
-
-Version officielle **1.21**, épinglée avec ses sommes SHA-256 dans `vms.psd1`.
-
-- Windows 11 : MSI, options documentées
-  ([doc](https://glpi-agent.readthedocs.io/en/latest/installation/windows-command-line.html)) :
-  `SERVER=<UrlAgent> ADD_FIREWALL_EXCEPTION=1 RUNNOW=1 EXECMODE=1 TAG=labo-vm ADDLOCAL=feat_AGENT,feat_NETINV`
-  (`feat_NETINV` prépare l'inventaire réseau de #8).
-- Ubuntu : installeur Linux officiel,
-  `--install --server=<UrlAgent> --tag=labo-vm --type=typical --runnow --no-question --silent`
-  (options de `--help`).
-
-L'URL vient de `Glpi.UrlAgent` (par défaut `http://10.77.10.254:8101/`, l'instance `glpi12-a` du
-labo vue depuis le LAN). `RUNNOW` / `--runnow` envoient un premier inventaire tout de suite : les
-postes apparaissent dans **Parc > Ordinateurs** de cette instance (étiquette `labo-vm`). Pour viser
-une autre instance, changez `Glpi.UrlAgent` puis réinstallez l'agent (ou modifiez `server` dans la
-configuration de l'agent).
+Pour que TLS aboutisse, le conteneur GLPI doit résoudre `dc01.lab.local` en `10.77.10.10`
+(`extra_hosts`) et faire confiance à `LAB-CA` (`…\vm\ca\lab-ca.pem`, désigné par `TLS_CACERT` dans
+`/etc/ldap/ldap.conf`). Ces deux réglages relèvent de la pile GLPI (`stack/`, lot #2).
 
 ## Pilotage au quotidien
 
 ```powershell
-.\vm\lab-vm.ps1 up                 # démarre tout : pfSense, AD, puis les postes
+.\vm\lab-vm.ps1 up                 # démarre Proxmox, puis pfSense, l'AD et les postes
 .\vm\lab-vm.ps1 up lab-ad lab-win11
-.\vm\lab-vm.ps1 status             # état, mémoire, point « propre », jours d'évaluation restants
-.\vm\lab-vm.ps1 reset lab-win11    # retour au point de contrôle « propre »
-.\vm\lab-vm.ps1 down               # arrêt propre, ordre inverse
+.\vm\lab-vm.ps1 status             # état, mémoire, instantané « propre », jours d'évaluation restants
+.\vm\lab-vm.ps1 reset lab-win11    # retour à l'instantané « propre »
+.\vm\lab-vm.ps1 down               # arrêt propre des VM, puis de Proxmox
 ```
 
 Autres commandes : `installer`, `reinstaller <vm>`, `renouveler`, `planifier`, `deplanifier`,
-`supprimer <vm>` (détail : `Get-Help .\vm\lab-vm.ps1 -Full`).
+`modele <vm>`, `supprimer <vm>` (`Get-Help .\vm\lab-vm.ps1 -Full`).
 
-Le point de contrôle « propre » est pris VM **arrêtée**, juste après la configuration : `reset`
-remet la VM dans cet état connu en quelques secondes, puis la redémarre. Les points de contrôle
-sont de type standard
-([Checkpoint-VM](https://learn.microsoft.com/powershell/module/hyper-v/checkpoint-vm)).
+**Modèles** : `lab-vm.ps1 modele lab-ubuntu` fait une copie complète de la VM arrêtée et la
+convertit en modèle Proxmox `tpl-lab-ubuntu` (VM 904), d'où cloner d'autres postes Linux en
+quelques secondes. Pour Windows, un clone garde l'horloge d'évaluation et l'identité de la VM
+d'origine : le labo réinstalle plutôt depuis l'ISO (installation sans intervention).
 
-Attention : revenir au point « propre » d'un poste joint au domaine longtemps après sa prise peut
-désynchroniser le mot de passe de son compte machine (renouvelé tous les 30 jours par défaut). Dans
-ce cas : `lab-vm.ps1 reinstaller lab-win11`.
+L'instantané « propre » est pris VM arrêtée, juste après la configuration. Revenir à celui d'un
+poste joint au domaine longtemps après sa prise peut désynchroniser son compte machine (mot de
+passe renouvelé tous les 30 jours) : dans ce cas, `lab-vm.ps1 reinstaller lab-win11`.
 
-## Mémoire utilisée
+## Mémoire
 
-Mémoire dynamique de Hyper-V (multiples de 128 Mo, comme le recommande Microsoft), sauf pfSense
-(FreeBSD) en mémoire fixe :
+| Niveau | Mémoire |
+|---|---|
+| VM Hyper-V `lab-proxmox` (statique, retirée à Windows quand elle tourne) | **8 Go** |
+| dont pfSense / AD / Windows 11 / Ubuntu | 1 / 2 / 2,5 / 1 Go = **6,5 Go** |
+| dont Proxmox lui-même | environ 1 à 1,5 Go |
 
-| VM | Démarrage | Minimum | Maximum |
-|---|---|---|---|
-| lab-pfsense | 1 024 Mo | 1 024 Mo (fixe) | 1 024 Mo |
-| lab-ad | 2 048 Mo | 2 048 Mo | 4 096 Mo |
-| lab-win11 | 4 096 Mo (exigé par l'installation de Windows 11) | 2 048 Mo | 4 096 Mo |
-| lab-ubuntu | 2 048 Mo | 1 024 Mo | 2 048 Mo |
-| **Total** | **9 Go** | **6 Go** | **11 Go** |
+Pendant l'installation de Windows 11, sa VM prend 4 Go (installations successives, pas toutes en
+même temps). Sur les 32 Go du PC, il reste 24 Go pour Windows, Docker et les instances GLPI. Rien
+ne démarre avec Windows : `lab-vm.ps1 up` / `down`.
 
-Sur 32 Go, il reste au moins 21 Go pour Windows, Docker et les instances GLPI. Les VM ne tournent
-que quand on les démarre (`lab-vm.ps1 up`) : aucune n'est lancée avec Windows. `lab-vm.ps1 status`
-affiche la mémoire réellement attribuée.
+Configuration requise citée : [Proxmox VE](https://pve.proxmox.com/wiki/System_Requirements),
+[Windows Server 2025](https://learn.microsoft.com/windows-server/get-started/hardware-requirements)
+(Server Core : 512 Mo, 32 Go), [Windows 11](https://learn.microsoft.com/windows/whats-new/windows-11-requirements)
+(4 Go, 64 Go, TPM 2.0), [pfSense](https://docs.netgate.com/pfsense/en/latest/hardware/minimum-requirements.html).
 
 ## Durées d'évaluation et réinstallation
 
-| Système | Durée | À l'échéance |
-|---|---|---|
-| Windows Server 2025 | 180 jours | l'évaluation expire : réinstaller (ci-dessous) |
-| Windows 11 Entreprise | 90 jours | idem |
-| Ubuntu Server LTS, pfSense CE | sans limite | rien à faire |
+| Système | Durée |
+|---|---|
+| Windows Server 2025 | 180 jours |
+| Windows 11 Entreprise | 90 jours |
+| Proxmox VE, Ubuntu, pfSense | sans limite |
 
-`lab-vm.ps1 status` affiche les jours restants : lus dans la licence de Windows quand la VM tourne
-(`SoftwareLicensingProduct.GracePeriodRemaining`), sinon calculés depuis la date d'installation
-(`…\vm\etat.json`).
-
-**Réinstallation automatique** :
+`lab-vm.ps1 status` affiche les jours restants (licence de Windows lue par l'agent invité, sinon
+date d'installation dans `…\vm\etat.json`).
 
 ```powershell
 .\vm\lab-vm.ps1 renouveler               # réinstalle ce qui expire dans moins de 7 jours
 .\vm\lab-vm.ps1 renouveler -SeuilJours 14
-.\vm\lab-vm.ps1 planifier                # chaque jour à 9 h, session ouverte (tâche de votre compte, sans droits administrateur)
+.\vm\lab-vm.ps1 planifier                # chaque jour à 9 h, session ouverte (sans droits administrateur)
 ```
 
-La réinstallation supprime la VM, son disque et ses points de contrôle, puis enchaîne
-`20-creer-vm.ps1` et `30-configurer.ps1` : installation sans intervention, domaine, annuaire de
-démonstration, agent et nouveau point « propre ». Réinstaller l'AD crée un **nouveau** domaine :
-Windows 11 est alors réinstallé aussi, sa jonction étant perdue. Les ISO déjà téléchargées
-servent à nouveau (une nouvelle évaluation repart pour 180 ou 90 jours). Ce que vous aviez ajouté
-à la main dans ces VM est perdu : gardez-le dans les modèles (`vm/modeles/`) pour qu'il soit
-recréé.
-
-Réinstallation manuelle d'une VM : `.\vm\lab-vm.ps1 reinstaller lab-ad` (confirmation demandée,
-`-Force` pour s'en passer). pfSense n'expire pas ; en cas de besoin, `reinstaller lab-pfsense`
-puis les étapes de la console et la restauration de `config.xml`.
+La réinstallation supprime la VM (disques et instantanés compris) puis enchaîne `30-creer-vm.ps1`
+et `40-configurer.ps1`. Réinstaller l'AD crée un **nouveau** domaine : Windows 11 et Ubuntu sont
+alors réinstallés aussi. Ce qui avait été ajouté à la main dans ces VM est perdu : gardez-le dans
+`vm/modeles/`.
 
 ## Fichiers produits (hors dépôt)
 
@@ -394,28 +379,27 @@ Sous `F:\Dev\glpi-test-lab-data\vm` :
 
 | Chemin | Contenu |
 |---|---|
-| `iso\` | ISO téléchargées, `SHA256SUMS.lab` (sommes relevées des ISO Microsoft) |
+| `iso\` | ISO téléchargées, `SHA256SUMS.lab` (sommes relevées) |
 | `logiciels\` | MSI et installeur Linux de GLPI Agent |
-| `machines\<vm>\` | VM, disque VHDX, points de contrôle |
-| `supports\` | `autounattend.xml` et supports CIDATA générés (contiennent des mots de passe) |
-| `secrets.json` | mots de passe générés : `AdminWindows` (Administrator du domaine et labadmin de Windows 11), `Dsrm`, `UtilisateursDemo`, `CompteLdapGlpi`, `Ubuntu`, `PfSense`, `SnmpPfSense` |
-| `ssh\` | clé SSH du labo (`ssh -i …\ssh\lab_ed25519 labadmin@10.77.10.30`) |
-| `ca\` | certificat de l'autorité LAB-CA (LDAPS) |
+| `machines\lab-proxmox\` | VM Hyper-V et VHDX de Proxmox |
+| `proxmox\` | `answer.toml`, script de premier démarrage, ISO automatique, `pve-root-ca.pem`, en-tête d'API |
+| `supports\` | supports d'installation générés (contiennent des mots de passe) |
+| `secrets.json` | `RootProxmox`, `JetonProxmox`, `AdminWindows` (Administrator du domaine, labadmin de Windows 11), `Dsrm`, `UtilisateursDemo`, `CompteLdapGlpi`, `Ubuntu`, `PfSense`, `SnmpPfSense` |
+| `ssh\` | clé SSH du labo (root de Proxmox, labadmin d'Ubuntu) |
+| `ca\` | certificat de LAB-CA (LDAPS) |
 | `etat.json` | dates d'installation et de configuration |
 
 ## Dépannage
 
-- **« Cette session ne peut pas piloter Hyper-V »** : étape 1 non faite, ou session Windows pas
-  rouverte depuis l'ajout au groupe « Administrateurs Hyper-V ».
-- **Windows reste sur « Press any key to boot from CD or DVD » puis affiche une erreur de
-  démarrage** : la touche est arrivée trop tôt ou trop tard. `lab-vm.ps1 supprimer <vm>` puis
-  `20-creer-vm.ps1 -Nom <vm>`, ou appuyez sur une touche dans `vmconnect` au bon moment.
-- **TPM virtuel non activé (Windows 11)** : créez cette VM depuis la console administrateur :
-  `00-prerequis-admin.ps1 -CreerVm`.
-- **Ubuntu demande « Continue with autoinstall? »** : la ligne GRUB n'a pas été saisie ; répondez
-  `yes` dans `vmconnect`, ou augmentez `DelaiGrubSecondes`.
-- **Les agents n'atteignent pas GLPI** : instance GLPI démarrée (`lab status`) ? Depuis la VM,
-  `Test-NetConnection 10.77.10.254 -Port 8101`. La règle de pare-feu de l'étape 1 doit exister
-  (`Get-NetFirewallRule -Name glpi-test-lab-vm-glpi`).
-- **Pas d'Internet dans les VM** : pfSense installé et configuré (étape 5) ? NAT créé (bilan de
-  l'étape 1) ?
+- **« Cette session ne peut pas piloter Hyper-V »** : compte hors du groupe « Administrateurs
+  Hyper-V » (voir l'étape administrateur), ou session pas rouverte depuis l'ajout.
+- **Proxmox ne répond pas sur 10.77.10.5** : console `vmconnect localhost lab-proxmox` ; journal du
+  premier démarrage dans Proxmox : `/var/log/lab-premier-demarrage.log`. Si l'hôte n'a pas
+  10.77.10.254 (`Get-NetIPAddress -InterfaceAlias "vEthernet (lab-interne)"`), attendez 5 minutes
+  (nouvelle demande DHCP de Windows).
+- **Windows reste sur « Press any key to boot from CD or DVD »** : `lab-vm.ps1 supprimer <vm>` puis
+  `30-creer-vm.ps1 -Nom <vm>`, ou appuyez sur une touche dans la console de Proxmox.
+- **Ubuntu demande « Continue with autoinstall? »** : répondez `yes` dans la console, ou augmentez
+  `DelaiGrubSecondes`.
+- **Les agents n'atteignent pas GLPI** : instance démarrée (`lab status`) ? Depuis la VM :
+  `Test-NetConnection 10.77.10.254 -Port 8101`.
