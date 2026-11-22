@@ -1,0 +1,374 @@
+#!/usr/bin/env bash
+# lab : commande unique du labo de test des plugins GLPI (Docker Swarm à un nœud).
+# Aide : ./lab help. Documentation : README.md et docs/.
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$0")" && pwd)
+cd "$ROOT"
+# Git Bash : ne pas convertir les chemins Linux passés à docker (/run/desktop/..., /var/www/...).
+export MSYS_NO_PATHCONV=1
+STACK_PREFIX=lab-
+NETWORK=lab-net
+
+die() { echo "lab : $*" >&2; exit 1; }
+info() { echo "lab : $*" >&2; }
+
+usage() {
+  cat <<'EOF'
+Usage : ./lab <commande> [arguments]
+
+  init                     prépare la machine : .env et mots de passe, Swarm, réseau lab-net
+  up <profil|brique|instance>…
+                           démarre (profils : voir profiles.txt ; instances : instances.txt)
+  down [--force] [<profil|brique|instance>…]
+                           arrête (tout le labo sans argument) ; refuse si une instance est verrouillée
+  status                   état des piles, des instances GLPI (HTTP, verrou) et mémoire utilisée
+  reset [--force] <instance>
+                           réinstalle une instance GLPI de zéro (base, /var/glpi et plugins effacés)
+  logs <instance|brique> [service] [--follow]
+                           journaux (service glpi par défaut pour une instance)
+  list                     profils, instances et briques disponibles
+  mem                      mémoire réellement utilisée, par pile et au total
+  container <instance>     identifiant du conteneur GLPI (pour docker exec)
+
+Exemples :
+  ./lab up glpi            toutes les instances GLPI
+  ./lab up glpi11          les instances GLPI 11 seulement
+  ./lab up glpi12-a        une instance
+  ./lab reset glpi12-b
+  G12=glpi12-a sh /f/Dev/glpi-test-env/deploy-g12.sh grcmanager
+EOF
+}
+
+# ---------------------------------------------------------------------------- réglages
+load_env() {
+  [ -f .env ] || die ".env absent : lancer ./lab init"
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+  : "${LAB_DATA_DIR:=F:/Dev/glpi-test-lab-data}" "${LAB_STORAGE:=bind}" "${LAB_GLPI_LANGUAGE:=fr_FR}"
+  : "${LAB_LOCK_DIR:=F:/Dev/glpi-test-env}"
+  if [ -z "${LAB_DB_PASSWORD:-}" ] || [ -z "${LAB_DB_ROOT_PASSWORD:-}" ]; then
+    die "mots de passe vides dans .env : lancer ./lab init"
+  fi
+  LAB_DATA_DIR_VM=$(vm_path "$LAB_DATA_DIR")
+  export LAB_DATA_DIR_VM
+}
+
+# Chemin Windows (F:/Dev/x ou F:\Dev\x) vu depuis la machine virtuelle de Docker Desktop.
+vm_path() {
+  local p=${1//\\//}
+  case "$p" in
+    [A-Za-z]:/*) local d=${p%%:*}; echo "/run/desktop/mnt/host/$(echo "$d" | tr '[:upper:]' '[:lower:]')${p#?:}" ;;
+    *) echo "$p" ;;
+  esac
+}
+
+gen_secret() { od -An -N16 -tx1 /dev/urandom | tr -d ' \n'; }
+
+cmd_init() {
+  if [ ! -f .env ]; then
+    cp .env.example .env
+    info ".env créé à partir de .env.example"
+  fi
+  local k
+  for k in LAB_DB_ROOT_PASSWORD LAB_DB_PASSWORD; do
+    if grep -q "^$k=$" .env; then
+      sed -i "s/^$k=$/$k=$(gen_secret)/" .env
+      info "$k généré dans .env"
+    fi
+  done
+  load_env
+  local state
+  state=$(docker info --format '{{.Swarm.LocalNodeState}}')
+  if [ "$state" != active ]; then
+    info "initialisation de Docker Swarm (nœud unique)"
+    # Plages d'adresses hors de celles du réseau local et des réseaux Docker existants (172.17-31).
+    if ! docker network inspect docker_gwbridge >/dev/null 2>&1; then
+      docker network create --driver bridge --subnet 10.211.0.0/16 \
+        --opt com.docker.network.bridge.name=docker_gwbridge \
+        --opt com.docker.network.bridge.enable_icc=false \
+        --opt com.docker.network.bridge.enable_ip_masquerade=true docker_gwbridge >/dev/null
+    fi
+    docker swarm init --default-addr-pool 10.210.0.0/16 --default-addr-pool-mask-length 24 >/dev/null
+  fi
+  ensure_network
+  mkdir -p "$LAB_DATA_DIR"
+  info "prêt (données : $LAB_DATA_DIR, stockage : $LAB_STORAGE)"
+}
+
+ensure_network() {
+  docker network inspect "$NETWORK" >/dev/null 2>&1 \
+    || docker network create --driver overlay --attachable "$NETWORK" >/dev/null
+}
+
+require_swarm() {
+  [ "$(docker info --format '{{.Swarm.LocalNodeState}}')" = active ] || die "Swarm inactif : lancer ./lab init"
+}
+
+# ---------------------------------------------------------------------------- inventaire
+# Instances : « nom version port » (instances.txt, sans commentaires).
+instances() { grep -vE '^[[:space:]]*(#|$)' instances.txt | awk '{print $1, $2, $3}'; }
+instance_line() { instances | awk -v n="$1" '$1 == n'; }
+is_instance() { [ -n "$(instance_line "$1")" ]; }
+is_brique() { [ -f "stack/$1.yml" ] && [ "$1" != glpi ]; }
+
+# Développe des profils en unités : « i:<instance> » ou « b:<brique> ».
+expand() {
+  local a
+  for a in "$@"; do
+    local def
+    def=$(grep -vE '^[[:space:]]*(#|$)' profiles.txt | awk -v p="$a" '$1 == p { $1 = ""; print }')
+    if [ -n "$def" ]; then
+      local e
+      for e in $def; do expand_item "$e"; done
+    else
+      expand_item "$a"
+    fi
+  done | awk '!seen[$0]++'
+}
+expand_item() {
+  case "$1" in
+    glpi:\*) instances | awk '{print "i:" $1}' ;;
+    glpi:[0-9]*) instances | awk -v m="${1#glpi:}" '{split($2, v, "."); if (v[1] == m) print "i:" $1}' ;;
+    glpi:*) is_instance "${1#glpi:}" || die "instance inconnue : ${1#glpi:}"; echo "i:${1#glpi:}" ;;
+    *)
+      if is_instance "$1"; then echo "i:$1"
+      elif is_brique "$1"; then echo "b:$1"
+      else die "profil, brique ou instance inconnu : $1 (voir ./lab list)"
+      fi ;;
+  esac
+}
+
+stack_of() { case "$1" in i:*) echo "$STACK_PREFIX${1#i:}" ;; b:*) echo "$STACK_PREFIX${1#b:}" ;; esac; }
+lab_stacks() { docker stack ls --format '{{.Name}}' 2>/dev/null | grep "^$STACK_PREFIX" || true; }
+
+glpi_container() {
+  docker ps -q -f "label=lab.instance=$1" -f label=lab.role=glpi | head -1
+}
+cmd_container() {
+  [ $# -eq 1 ] || die "usage : ./lab container <instance>"
+  local c; c=$(glpi_container "$1"); [ -n "$c" ] || die "aucun conteneur GLPI en marche pour $1"
+  echo "$c"
+}
+
+lockdir() { [ "$1" = g12 ] && echo "$LAB_LOCK_DIR/.grc-lock" || echo "$LAB_LOCK_DIR/.grc-lock-$1"; }
+locked() { [ -d "$(lockdir "$1")" ]; }
+
+# ---------------------------------------------------------------------------- up
+deploy_instance() {
+  local name=$1 version port
+  read -r _ version port <<<"$(instance_line "$name")"
+  local files=(-c stack/glpi.yml)
+  if [ "$LAB_STORAGE" = bind ]; then
+    mkdir -p "$LAB_DATA_DIR/$name/db" "$LAB_DATA_DIR/$name/var" "$LAB_DATA_DIR/$name/plugins"
+    files+=(-c stack/glpi.bind.yml)
+  fi
+  info "$name : GLPI $version sur http://localhost:$port"
+  LAB_INSTANCE=$name LAB_GLPI_VERSION=$version LAB_PORT=$port \
+    docker stack deploy --detach=true --resolve-image never "${files[@]}" "$STACK_PREFIX$name" >/dev/null
+}
+
+deploy_brique() {
+  info "brique $1"
+  docker stack deploy --detach=true "-c" "stack/$1.yml" "$STACK_PREFIX$1" >/dev/null
+}
+
+# Attend l'installation automatique de GLPI, puis règle la langue et l'adresse (une seule fois).
+init_instance() {
+  local name=$1 version port c i=0
+  read -r _ version port <<<"$(instance_line "$name")"
+  until [ "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$port/index.php" || true)" = 200 ]; do
+    i=$((i + 1)); [ $i -gt 120 ] && die "$name ne répond pas après 10 minutes (./lab logs $name)"
+    sleep 5
+  done
+  c=$(glpi_container "$name")
+  [ -n "$c" ] || die "$name : conteneur introuvable"
+  if ! docker exec "$c" test -f /var/glpi/config/.lab-initialise; then
+    info "$name : réglages initiaux (langue $LAB_GLPI_LANGUAGE, adresse http://localhost:$port)"
+    docker exec -u www-data -w /var/www/glpi "$c" sh -c "
+      set -e
+      cfg() { php bin/console config:set \"\$1\" \"\$2\" >/dev/null 2>&1 || php bin/console glpi:config:set \"\$1\" \"\$2\" >/dev/null; }
+      cfg language '$LAB_GLPI_LANGUAGE'
+      cfg url_base 'http://localhost:$port'
+      cfg url_base_api 'http://localhost:$port/api.php'
+      php bin/console cache:clear >/dev/null 2>&1 || true
+      date -u +%FT%TZ > /var/glpi/config/.lab-initialise"
+  fi
+  info "$name prête : http://localhost:$port (glpi/glpi)"
+}
+
+cmd_up() {
+  [ $# -ge 1 ] || die "usage : ./lab up <profil|brique|instance>…"
+  load_env; require_swarm; ensure_network
+  local units u todo=()
+  units=$(expand "$@")
+  for u in $units; do
+    case "$u" in
+      i:*) deploy_instance "${u#i:}"; todo+=("${u#i:}") ;;
+      b:*) deploy_brique "${u#b:}" ;;
+    esac
+  done
+  for u in "${todo[@]}"; do init_instance "$u"; done
+}
+
+# ---------------------------------------------------------------------------- down / reset
+wait_stack_gone() {
+  local i=0
+  while [ -n "$(docker ps -aq -f "label=com.docker.stack.namespace=$1")" ] \
+     || docker network inspect "$1_default" >/dev/null 2>&1; do
+    i=$((i + 1)); [ $i -gt 90 ] && die "la pile $1 ne s'arrête pas"
+    sleep 2
+  done
+}
+
+check_locks() {
+  local s n busy=()
+  for s in "$@"; do
+    n=${s#"$STACK_PREFIX"}
+    if is_instance "$n" && locked "$n"; then busy+=("$n"); fi
+  done
+  [ ${#busy[@]} -eq 0 ] || die "instance(s) verrouillée(s) par un agent : ${busy[*]} (attendre, ou --force)"
+}
+
+cmd_down() {
+  local force=0
+  [ "${1:-}" = --force ] && { force=1; shift; }
+  load_env
+  local stacks=() u s
+  if [ $# -eq 0 ]; then
+    mapfile -t stacks < <(lab_stacks)
+  else
+    for u in $(expand "$@"); do stacks+=("$(stack_of "$u")"); done
+  fi
+  [ ${#stacks[@]} -gt 0 ] || { info "rien à arrêter"; return; }
+  [ $force = 1 ] || check_locks "${stacks[@]}"
+  for s in "${stacks[@]}"; do
+    docker stack ls --format '{{.Name}}' | grep -qx "$s" || continue
+    info "arrêt de $s"
+    docker stack rm "$s" >/dev/null
+  done
+  for s in "${stacks[@]}"; do wait_stack_gone "$s"; done
+  info "arrêté (données conservées dans $LAB_DATA_DIR)"
+}
+
+cmd_reset() {
+  local force=0
+  [ "${1:-}" = --force ] && { force=1; shift; }
+  [ $# -eq 1 ] || die "usage : ./lab reset [--force] <instance>"
+  local name=$1 s=$STACK_PREFIX$1 v
+  is_instance "$name" || die "instance inconnue : $name"
+  load_env; require_swarm
+  [ $force = 1 ] || check_locks "$s"
+  if docker stack ls --format '{{.Name}}' | grep -qx "$s"; then
+    info "arrêt de $s"; docker stack rm "$s" >/dev/null; wait_stack_gone "$s"
+  fi
+  for v in db var plugins; do docker volume rm "${s}_$v" >/dev/null 2>&1 || true; done
+  if [ "$LAB_STORAGE" = bind ] && [ -d "$LAB_DATA_DIR/$name" ]; then
+    info "effacement de $LAB_DATA_DIR/$name"
+    rm -rf "${LAB_DATA_DIR:?}/$name"
+  fi
+  ensure_network
+  deploy_instance "$name"
+  init_instance "$name"
+}
+
+# ---------------------------------------------------------------------------- status / mem / logs / list
+# Mémoire utilisée par conteneur du labo, en Mio : « pile Mio ».
+mem_by_stack() {
+  local ids
+  ids=$(docker ps -q -f label=com.docker.stack.namespace)
+  [ -n "$ids" ] || return 0
+  # shellcheck disable=SC2086
+  docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' $ids | awk -v p="$STACK_PREFIX" '
+    function mib(v) {
+      if (v ~ /GiB$/) return v * 1024; if (v ~ /MiB$/) return v + 0; if (v ~ /KiB$/) return v / 1024
+      if (v ~ /B$/) return v / 1048576; return v + 0 }
+    { split($1, a, "_"); if (index(a[1], p) == 1) print a[1], mib($2) }'
+}
+
+cmd_mem() {
+  local data
+  data=$(mem_by_stack)
+  [ -n "$data" ] || { echo "aucune pile du labo en marche"; return; }
+  echo "$data" | awk '{ s[$1] += $2; t += $2 } END {
+    for (k in s) printf "%-24s %7.0f Mio\n", k, s[k]; printf "%-24s %7.0f Mio\n", "TOTAL", t }' | sort
+}
+
+cmd_status() {
+  load_env
+  echo "Swarm : $(docker info --format '{{.Swarm.LocalNodeState}}')    données : $LAB_DATA_DIR ($LAB_STORAGE)"
+  echo
+  echo "Instances GLPI :"
+  local mem name version port st code lock m
+  mem=$(mem_by_stack)
+  while read -r name version port; do
+    if docker stack ls --format '{{.Name}}' 2>/dev/null | grep -qx "$STACK_PREFIX$name"; then
+      st=démarrée
+      code=$(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://localhost:$port/index.php" || true)
+    else
+      st=arrêtée; code=-
+    fi
+    lock=libre; locked "$name" && lock=prise
+    m=$(echo "$mem" | awk -v s="$STACK_PREFIX$name" '$1 == s { t += $2 } END { if (t) printf "%.0f Mio", t; else print "-" }')
+    printf '  %-10s GLPI %-8s http://localhost:%-5s %-9s HTTP %-4s verrou %-6s %s\n' \
+      "$name" "$version" "$port" "$st" "$code" "$lock" "$m"
+  done < <(instances)
+  local others
+  others=$(lab_stacks | while read -r s; do is_instance "${s#"$STACK_PREFIX"}" || echo "$s"; done)
+  if [ -n "$others" ]; then
+    echo; echo "Autres briques :"
+    echo "$others" | while read -r s; do
+      echo "  $s"; docker stack services "$s" --format '    {{.Name}} {{.Replicas}} {{.Ports}}'
+    done
+  fi
+  echo; echo "Mémoire (Mio) :"; cmd_mem | sed 's/^/  /'
+}
+
+cmd_logs() {
+  local follow=()
+  local args=()
+  local a
+  for a in "$@"; do [ "$a" = --follow ] && follow=(--follow) || args+=("$a"); done
+  [ ${#args[@]} -ge 1 ] || die "usage : ./lab logs <instance|brique> [service] [--follow]"
+  local s=$STACK_PREFIX${args[0]} svc=${args[1]:-}
+  if [ -z "$svc" ] && is_instance "${args[0]}"; then svc=glpi; fi
+  if [ -n "$svc" ]; then
+    docker service logs --tail 200 "${follow[@]}" "${s}_$svc"
+  else
+    local x
+    for x in $(docker stack services "$s" --format '{{.Name}}'); do
+      echo "=== $x"; docker service logs --tail 100 "$x"
+    done
+  fi
+}
+
+cmd_list() {
+  echo "Profils (profiles.txt) :"
+  grep -vE '^[[:space:]]*(#|$)' profiles.txt | sed 's/^/  /'
+  echo; echo "Instances GLPI (instances.txt) :"
+  instances | awk '{ printf "  %-10s GLPI %-8s http://localhost:%s\n", $1, $2, $3 }'
+  echo; echo "Briques (stack/) :"
+  local f
+  for f in stack/*.yml; do
+    case "$f" in *.bind.yml) continue ;; esac
+    echo "  $(basename "$f" .yml)"
+  done
+}
+
+# ---------------------------------------------------------------------------- aiguillage
+c=${1:-help}; [ $# -gt 0 ] && shift
+case "$c" in
+  init) cmd_init ;;
+  up) cmd_up "$@" ;;
+  down) cmd_down "$@" ;;
+  status) cmd_status ;;
+  reset) cmd_reset "$@" ;;
+  logs) cmd_logs "$@" ;;
+  list) cmd_list ;;
+  mem) cmd_mem ;;
+  container) cmd_container "$@" ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 1 ;;
+esac

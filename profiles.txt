@@ -1,0 +1,12 @@
+# Profils de `lab up <profil…>` : un profil regroupe des briques (stack/<brique>.yml) ou des
+# instances GLPI (glpi:<nom>, voir instances.txt). Sans ligne ici, un nom désigne directement une
+# brique (stack/<nom>.yml) ou une instance GLPI.
+# Colonnes : profil  éléments…
+glpi    glpi:*
+glpi12  glpi:12
+glpi11  glpi:11
+# Lots suivants (exemples, à décommenter quand les fichiers de stack existent) :
+# docker      portainer wud harbor forgejo
+# supervision zabbix
+# securite    wazuh
+# telephonie  freepbx

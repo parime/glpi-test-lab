@@ -1,0 +1,23 @@
+# Complément de stack/glpi.yml (mode LAB_STORAGE=bind, par défaut) : les trois volumes de l'instance
+# sont des dossiers de F:\Dev\glpi-test-lab-data\<instance>\ (db, var, plugins), créés par `lab`.
+# LAB_DATA_DIR_VM est le même dossier vu depuis la machine virtuelle de Docker Desktop
+# (/run/desktop/mnt/host/f/Dev/glpi-test-lab-data), calculé par `lab`.
+volumes:
+  db:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${LAB_DATA_DIR_VM:?dossier de données absent}/${LAB_INSTANCE}/db
+  var:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${LAB_DATA_DIR_VM}/${LAB_INSTANCE}/var
+  plugins:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${LAB_DATA_DIR_VM}/${LAB_INSTANCE}/plugins
