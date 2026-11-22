@@ -135,11 +135,15 @@ function Get-IsoUbuntu {
     $choix = $candidats | Sort-Object Version | Select-Object -Last 1
     $chemin = Join-Path $dossierIso $choix.Nom
     Write-LabInfo "Version retenue : $($choix.Nom)"
+    $verifiee = $false
     if (Test-Path $chemin) {
-        if ((Get-LabSha256 -Fichier $chemin) -ne $choix.Somme) { Write-LabAvert 'Somme différente : nouveau téléchargement.'; Remove-Item $chemin -Force }
+        if ((Get-LabSha256 -Fichier $chemin) -eq $choix.Somme) { $verifiee = $true }
+        else { Write-LabAvert 'Somme différente : nouveau téléchargement.'; Remove-Item $chemin -Force }
     }
-    if (-not (Test-Path $chemin)) { Invoke-LabTelechargement -Url ($iso.Base + $choix.Nom) -Destination $chemin }
-    if ((Get-LabSha256 -Fichier $chemin) -ne $choix.Somme) { throw "Somme SHA-256 invalide pour $($choix.Nom)." }
+    if (-not $verifiee) {
+        Invoke-LabTelechargement -Url ($iso.Base + $choix.Nom) -Destination $chemin
+        if ((Get-LabSha256 -Fichier $chemin) -ne $choix.Somme) { throw "Somme SHA-256 invalide pour $($choix.Nom)." }
+    }
     Write-LabOk "SHA-256 vérifiée (SHA256SUMS officiel) : $($choix.Somme)"
     # Nom stable pour les autres scripts.
     Set-Content -Path (Join-Path $dossierIso 'ubuntu-server.txt') -Value $choix.Nom -Encoding ASCII

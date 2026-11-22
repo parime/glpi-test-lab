@@ -303,6 +303,20 @@ foreach ($vm in (Get-LabVmListe -Config $config -Noms $Nom)) {
         continue
     }
 
+    if ($vm.Role -eq 'poste-ubuntu') {
+        # L'installation d'Ubuntu télécharge des paquets (linux-azure) : il faut Internet, donc pfSense.
+        $pf = $config.Reseau.Interne.Passerelle
+        if (-not (Test-NetConnection -ComputerName $pf -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue)) {
+            Write-LabAvert "pfSense ($pf) ne répond pas encore : installez-le à la console (docs/vm.md) ; attente jusqu'à 60 minutes..."
+            $limite = (Get-Date).AddMinutes(60); $pret = $false
+            while (-not $pret -and (Get-Date) -lt $limite) {
+                Start-Sleep -Seconds 30
+                $pret = Test-NetConnection -ComputerName $pf -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue
+            }
+            if (-not $pret) { Write-LabErreur "pfSense toujours injoignable : relancez plus tard .\vm\20-creer-vm.ps1 -Nom $($vm.Nom)"; continue }
+        }
+    }
+
     Start-Installation -Vm $vm
     Write-LabOk 'Installation lancée.'
     if ($SansAttente) { continue }

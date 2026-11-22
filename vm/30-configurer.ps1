@@ -196,7 +196,7 @@ function Install-AgentWindows {
     $ga = $config.GlpiAgent
     $msi = Join-Path (Get-LabChemin -Config $config -Type logiciels) $ga.Msi
     if (-not (Test-Path $msi)) { throw "MSI absent ($msi) : lancez vm\10-telecharger-iso.ps1." }
-    $present = Invoke-Vm -Nom $Vm.Nom -Credential $Credential -Bloc { [bool](Get-Service -Name 'glpi-agent' -ErrorAction SilentlyContinue) }
+    $present = Invoke-Vm -Nom $Vm.Nom -Credential $Credential -Bloc { [bool](Get-Service | Where-Object { $_.Name -eq 'glpi-agent' -or $_.DisplayName -like 'GLPI Agent*' }) }
     if ($present) { Write-LabOk 'GLPI Agent déjà installé.'; return }
     $session = New-PSSession -VMName $Vm.Nom -Credential $Credential
     try {
