@@ -14,7 +14,7 @@ services:
     image: nginx:1.25.3-alpine
     labels:
       wud.watch: "true"
-      wud.tag.include: '^\d+\.\d+\.\d+-alpine$'
+      wud.tag.include: '^\d+\.\d+\.\d+-alpine$$'
     networks: [default, lab-net]
     deploy:
       replicas: 2
@@ -40,7 +40,7 @@ services:
     image: httpd:2.4.57-alpine
     labels:
       wud.watch: "true"
-      wud.tag.include: '^\d+\.\d+\.\d+-alpine$'
+      wud.tag.include: '^\d+\.\d+\.\d+-alpine$$'
     networks: [default, lab-net]
     deploy:
       labels:
@@ -64,7 +64,7 @@ services:
     image: redis:7.0.15-alpine
     labels:
       wud.watch: "true"
-      wud.tag.include: '^\d+\.\d+\.\d+-alpine$'
+      wud.tag.include: '^\d+\.\d+\.\d+-alpine$$'
     deploy:
       labels:
         traefik.enable: "true"
@@ -86,7 +86,7 @@ services:
     image: memcached:1.6.21-alpine
     labels:
       wud.watch: "true"
-      wud.tag.include: '^\d+\.\d+\.\d+-alpine$'
+      wud.tag.include: '^\d+\.\d+\.\d+-alpine$$'
     deploy:
       restart_policy:
         condition: any

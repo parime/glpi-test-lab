@@ -30,7 +30,8 @@ seed() {
   endpoint() { pc "$API/endpoints" | "$PY" -c 'import sys, json
 print(next((str(e["Id"]) for e in json.load(sys.stdin) if e["Name"] == "primary"), ""))'; }
   # L'environnement « primary » est créé au démarrage par -H tcp://tasks.agent:9001.
-  wait_for "environnement Swarm « primary » (agent joint)" 900 test -n "$(endpoint)"
+  has_endpoint() { [ -n "$(endpoint)" ]; }
+  wait_for "environnement Swarm « primary » (agent joint)" 900 has_endpoint
   eid=$(endpoint)
   wait_for "Swarm vu par l'agent" 600 pc "$API/endpoints/$eid/docker/swarm"
   swarm=$(pc "$API/endpoints/$eid/docker/swarm" | json_get ID)
@@ -54,6 +55,28 @@ print(next((str(u["Id"]) for u in json.load(sys.stdin) if u["Username"] == "glpi
     info "jeton d'API de glpi-lecture créé (LAB_PORTAINER_GLPI_TOKEN dans .env)"
   fi
 
+  # Réseau commun lab-net, créé hors Portainer donc réservé aux administrateurs : rendu public dans
+  # Portainer, sinon glpi-lecture ne peut pas y rattacher lab-demo (« forbidden to join this network »).
+  local net
+  net=$(docker network inspect -f '{{.Id}}' lab-net)
+  if ! pc "$API/endpoints/$eid/docker/networks/$net" | "$PY" -c 'import sys, json
+rc = (json.load(sys.stdin).get("Portainer") or {}).get("ResourceControl") or {}
+sys.exit(0 if rc.get("Public") else 1)'; then
+    pc -X POST "$API/resource_controls" -H 'Content-Type: application/json'       -d "{\"ResourceID\":\"$net\",\"Type\":4,\"Public\":true}" >/dev/null
+    info "réseau lab-net public dans Portainer"
+  fi
+
+  # Pile déployée par Portainer mais en échec (ancienne tentative) : supprimée, puis recréée.
+  local failed
+  failed=$(uc "$API/stacks" | "$PY" -c 'import sys, json
+for s in json.load(sys.stdin):
+    if s["Name"] == "lab-demo" and (s.get("DeploymentStatus") or [{}])[-1].get("Status") == 4:
+        print(s["Id"])')
+  if [ -n "$failed" ]; then
+    uc -X DELETE "$API/stacks/$failed?endpointId=$eid" >/dev/null || true
+    info "ancienne pile lab-demo en échec supprimée de Portainer"
+  fi
+
   # Pile de démonstration déployée par glpi-lecture : elle lui appartient, il la voit avec son jeton.
   if ! uc "$API/stacks" | "$PY" -c 'import sys, json
 sys.exit(0 if any(s["Name"] == "lab-demo" for s in json.load(sys.stdin)) else 1)'; then
@@ -69,6 +92,8 @@ print(json.dumps({"name": "lab-demo", "swarmID": sys.argv[1],
     uc -X POST "$API/stacks/create/swarm/string?endpointId=$eid" -H 'Content-Type: application/json' -d "$body" >/dev/null
     info "pile lab-demo déployée par Portainer (utilisateur glpi-lecture)"
   fi
+  has_demo() { [ -n "$(docker service ls -q -f label=com.docker.stack.namespace=lab-demo)" ]; }
+  wait_for "services de lab-demo créés (sinon : état de la pile dans Portainer)" 600 has_demo
   env_set LAB_PORTAINER_ENDPOINT_ID "$eid"
   info "prêt : http://localhost:8120 (admin, mot de passe LAB_PORTAINER_ADMIN_PASSWORD de .env)"
 }
