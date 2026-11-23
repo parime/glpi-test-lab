@@ -5,7 +5,7 @@
 #   POST /api/auth, GET /api/endpoints, GET /api/endpoints/{id}/docker/swarm, POST /api/users,
 #   PUT /api/endpoints/{id} (UserAccessPolicies), POST /api/users/{id}/tokens (rawAPIKey),
 #   GET /api/stacks, POST /api/stacks/create/swarm/string.
-# shellcheck disable=SC1091
+# shellcheck disable=SC1091,SC2317  # SC2317 : fonctions appelées par wait_for
 . "$LAB_ROOT/lib/brique.sh"
 
 API=http://localhost:8120/api
