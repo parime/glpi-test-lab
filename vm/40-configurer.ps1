@@ -185,7 +185,11 @@ Invoke-Command -ComputerName localhost -Credential `$cred -ArgumentList `$suppor
     if (-not ((Get-DnsServerForwarder).IPAddress | Where-Object { `$_.IPAddressToString -eq '$($reseau.Passerelle)' })) { Add-DnsServerForwarder -IPAddress '$($reseau.Passerelle)'; `$sortie += 'redirecteur DNS' }
     if (-not (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration\*')) {
         Install-WindowsFeature -Name ADCS-Cert-Authority -IncludeManagementTools | Out-Null
-        Install-AdcsCertificationAuthority -CAType EnterpriseRootCA -CACommonName 'LAB-CA' -ValidityPeriod Years -ValidityPeriodUnits 10 -Force | Out-Null
+        # Une erreur sur les modèles de certificats (objet déjà présent, après un premier essai) n'empêche
+        # pas l'autorité d'être configurée : on vérifie ensuite et on réinstalle les modèles par défaut.
+        try { Install-AdcsCertificationAuthority -CAType EnterpriseRootCA -CACommonName 'LAB-CA' -ValidityPeriod Years -ValidityPeriodUnits 10 -Force -ErrorAction Stop | Out-Null }
+        catch { if (-not (Test-Path 'HKLM:\SYSTEM\CurrentControlSet\Services\CertSvc\Configuration\*')) { throw } }
+        & certutil.exe -installdefaulttemplates | Out-Null
         `$sortie += 'autorité LAB-CA'
     }
     & certutil.exe -pulse | Out-Null
