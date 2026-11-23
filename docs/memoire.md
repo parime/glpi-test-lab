@@ -40,6 +40,7 @@ marche à côté). Les valeurs sont la mémoire résidente, cache de pages compr
 | `registry` | registry:2 | 9 Mio | 128 Mio |
 | `forgejo` | Forgejo (SQLite) | 202 Mio | 384 Mio |
 | `traefik` | Traefik 3 + Traefik 2 | 72 Mio | 192 Mio |
+| `vaultwarden` (hors profil `docker`) | Vaultwarden 1.37 (SQLite) | 44 Mio | 128 Mio |
 | piles `lab-demo` et `lab-demo-harbor` | 8 petits services | 34 + 31 Mio | 272 Mio (par réplica) |
 | **profil `docker`** | tout | **environ 0,9 Gio** | |
 | **profil `docker-leger`** | sans Harbor ni Forgejo | **environ 0,4 Gio** | |

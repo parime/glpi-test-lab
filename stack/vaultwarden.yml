@@ -1,0 +1,78 @@
+# Brique « vaultwarden » : Vaultwarden, serveur libre compatible Bitwarden (image officielle
+# vaultwarden/server, édition alpine), pour tester en vrai l'import des comptes à privilèges de GRC
+# (parime/glpi-iso27001-management#859) : Vaultwarden n'a pas l'API publique d'organisation de
+# Bitwarden, GRC lit donc ses exports CSV faits avec l'interface en ligne de commande « bw ».
+# Documentation : https://github.com/dani-garcia/vaultwarden/wiki ;
+# réglages : https://github.com/dani-garcia/vaultwarden/blob/main/.env.template
+#
+# Données : organisation « Labo GRC », membres et éléments factices créés par le crochet
+# stack/vaultwarden/hook.sh (seed.py) ; export CSV par stack/vaultwarden/export.sh.
+# HTTPS obligatoire : l'interface « bw » refuse une adresse en http://. Certificat de « vaultwarden »
+# et « localhost » signé par une autorité locale (secrets/vaultwarden/ca.pem, générée par le crochet).
+# Interface : https://localhost:8150 (coffre web), administration https://localhost:8150/admin
+# (LAB_VAULTWARDEN_ADMIN_PASSWORD de .env). Depuis lab-net : https://vaultwarden:80.
+
+services:
+  vaultwarden:
+    image: ${LAB_VAULTWARDEN_IMAGE:-vaultwarden/server:1.37.5-alpine}
+    environment:
+      DOMAIN: https://localhost:8150
+      ROCKET_TLS: '{certs="/run/secrets/cert.pem",key="/run/secrets/key.pem"}'
+      # Pas d'inscription libre : les comptes de démonstration sont invités par l'administration.
+      SIGNUPS_ALLOWED: "false"
+      INVITATIONS_ALLOWED: "true"
+      # Jeton en clair (Vaultwarden le signale au démarrage) : il vient de .env, généré sur le poste.
+      ADMIN_TOKEN: "${LAB_VAULTWARDEN_ADMIN_PASSWORD:?mot de passe absent, lancer ./lab init}"
+      # Le crochet rejouable se connecte à l'administration à chaque `lab seed` (3 par 5 min sinon).
+      ADMIN_RATELIMIT_MAX_BURST: "20"
+      # Aucun envoi de courriel ni appel extérieur (icônes des sites).
+      DISABLE_ICON_DOWNLOAD: "true"
+      ICON_SERVICE: internal
+      SHOW_PASSWORD_HINT: "false"
+      PASSWORD_HINTS_ALLOWED: "false"
+      ROCKET_WORKERS: "4"
+      DATABASE_MAX_CONNS: "4"
+      LOG_LEVEL: warn
+    secrets:
+      - source: cert
+        target: cert.pem
+      - source: key
+        target: key.pem
+    volumes:
+      - data:/data
+    ports:
+      - target: 80
+        published: 8150
+        protocol: tcp
+        mode: ingress
+    networks:
+      default: {}
+      lab-net:
+        aliases: [vaultwarden]
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
+        reservations:
+          memory: 24M
+
+secrets:
+  cert:
+    name: lab-vaultwarden-cert-${LAB_CONFIG_VERSION:-0}
+    file: ${LAB_SECRETS_DIR:-../secrets}/vaultwarden/cert.pem
+  key:
+    name: lab-vaultwarden-key-${LAB_CONFIG_VERSION:-0}
+    file: ${LAB_SECRETS_DIR:-../secrets}/vaultwarden/key.pem
+
+volumes:
+  data:
+
+networks:
+  default:
+    driver: overlay
+  lab-net:
+    external: true

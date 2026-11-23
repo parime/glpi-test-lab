@@ -14,6 +14,9 @@ images officielles épinglées. Toutes les données sont fictives.
 
 ## Briques
 
+Hors du profil `docker` : la brique `vaultwarden` (coffre-fort de mots de passe, comptes à
+privilèges de GRC), décrite dans [vaultwarden.md](vaultwarden.md).
+
 | Brique | Image | Adresse sur le poste | Adresse depuis GLPI (lab-net) | Compte pour GLPI |
 |---|---|---|---|---|
 | `portainer` | `portainer/portainer-ce:2.45.4`, agent `portainer/agent:2.45.4` | http://localhost:8120 | http://portainer:9000 | jeton d'API de `glpi-lecture` |
@@ -23,6 +26,7 @@ images officielles épinglées. Toutes les données sont fictives.
 | `registry` | `registry:2.8.3` | http://localhost:8135 | http://docker-registry:5000 | `glpi-lecture`, authentification basique |
 | `forgejo` | `codeberg.org/forgejo/forgejo:15.0.12` | http://localhost:8140 | http://forgejo:3000 | jeton en lecture de `glpi-lecture` |
 | `traefik` | `traefik:v3.7.19` et `traefik:v2.11.63` | API :8145 (v3), :8146 (v2), entrée web :8147 | http://traefik:8080, http://traefik2:8080 | `glpi-lecture`, authentification basique |
+| `vaultwarden` | `vaultwarden/server:1.37.5-alpine` | https://localhost:8150 | https://vaultwarden:80 | aucun : GRC importe les exports CSV de `bw` ([vaultwarden.md](vaultwarden.md)) |
 
 Mots de passe, jetons et secrets se trouvent **uniquement dans `.env`** (ignoré par git) et dans
 `secrets/` (clés de Harbor, htpasswd), tous deux générés sur le poste. Ne jamais les recopier dans

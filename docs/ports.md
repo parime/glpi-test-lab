@@ -25,6 +25,7 @@ Tous les services sont publiés sur `localhost` par le réseau ingress de Swarm.
 | 8145 | lab-traefik | API de Traefik 3 |
 | 8146 | lab-traefik | API de Traefik 2 |
 | 8147 | lab-traefik | entrée web de Traefik 3 (routeurs de lab-demo) |
+| 8150 | lab-vaultwarden | Vaultwarden (HTTPS, autorité locale) |
 
 La CI vérifie que les ports publiés des briques sont dans 8120-8199 et qu'aucun n'est publié deux
 fois.
