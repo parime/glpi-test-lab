@@ -53,6 +53,15 @@ const LAB_ENTRIES = [
     'Compte de service sauvegarde' => [],
 ];
 
+/**
+ * Écarts connus de GRC (issue ouverte) : résultat actuel accepté sans faire échouer l'essai, signalé
+ * « CONNU » ; dès que GRC donne l'attendu, la ligne repasse « OK ».
+ */
+const LAB_KNOWN = [
+    // parime/glpi-iso27001-management#1145 : creationDate ignorée quand passwordRevisionDate est vide.
+    "Console d'hébergement" => [['no_date'], 'parime/glpi-iso27001-management#1145'],
+];
+
 function lab_say(string $msg): void
 {
     fwrite(STDERR, 'essai vaultwarden : ' . $msg . PHP_EOL);
@@ -117,15 +126,17 @@ function lab_compare(string $what, array $expected, array $actual): int
         sort($gaps);
         sort($got);
         $ok = $gaps === $got;
+        $known = !$ok && isset(LAB_KNOWN[$key]) && LAB_KNOWN[$key][0] === $got;
         printf(
-            "%-6s %-12s %-36s attendu [%s], GRC [%s]\n",
-            $ok ? 'OK' : 'ÉCHEC',
+            "%-6s %-12s %-36s attendu [%s], GRC [%s]%s\n",
+            $ok ? 'OK' : ($known ? 'CONNU' : 'ÉCHEC'),
             $what,
             $key,
             implode(', ', $gaps),
-            implode(', ', $got)
+            implode(', ', $got),
+            $known ? ' (écart connu : ' . LAB_KNOWN[$key][1] . ')' : ''
         );
-        $bad += $ok ? 0 : 1;
+        $bad += $ok || $known ? 0 : 1;
     }
     foreach (array_diff_key($actual, $expected) as $key => $got) {
         printf("ÉCHEC  %-12s %-36s inattendu [%s]\n", $what, $key, implode(', ', $got));

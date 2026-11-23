@@ -92,6 +92,18 @@ et leurs comptes sont détaillés dans [docs/briques.md](docs/briques.md).
 ./lab connect glpi12-b     # connexions de l'Inventaire Docker (plugin installé au préalable)
 ```
 
+## Coffre-fort de mots de passe (brique `vaultwarden`)
+
+Vaultwarden, serveur libre compatible Bitwarden, avec une organisation factice (membres partis,
+administrateur sans connexion en deux étapes, mots de passe anciens), exportée avec l'interface
+officielle `bw` au format d'import des Comptes privilégiés de GRC. Détails, données et essai de
+bout en bout : [docs/vaultwarden.md](docs/vaultwarden.md).
+
+```sh
+./lab up vaultwarden                     # https://localhost:8150
+bash stack/vaultwarden/hook.sh export    # membres.csv et elements.csv, sans aucun secret
+```
+
 ## Démarrage rapide
 
 Depuis Git Bash :
@@ -148,6 +160,7 @@ avec `--force`. `lab` ne touche qu'aux piles `lab-*` : jamais aux conteneurs de 
 - [Architecture et choix techniques](docs/architecture.md)
 - [Ports](docs/ports.md)
 - [Mémoire par profil](docs/memoire.md)
+- [Brique Vaultwarden (comptes à privilèges de GRC)](docs/vaultwarden.md)
 - [Compatibilité avec glpi-test-env (verrous, déploiement, tests)](docs/compatibilite.md)
 - [Briques Docker : Portainer, WUD, Harbor, registre, Forgejo, Traefik](docs/briques.md)
 - [Ajouter une brique](docs/ajouter-une-brique.md)

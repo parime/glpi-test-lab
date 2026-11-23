@@ -31,9 +31,10 @@ docker cp stack/vaultwarden/grc/essai.php "$c:/tmp/lab-essai-vaultwarden.php" >/
 php_essai() { docker exec -u www-data -w /var/www/glpi "$c" php /tmp/lab-essai-vaultwarden.php "$@"; }
 php_essai comptes
 
+# Jeton CSRF d'une page (le formulaire de connexion de GLPI 12 n'en a pas : chaîne vide).
 csrf() {
-  curl -fsS -b "$jar" -c "$jar" "$1" | grep -o 'name="_glpi_csrf_token" value="[^"]*"\|glpi:csrf_token" content="[^"]*"' \
-    | head -1 | sed 's/.*\(value\|content\)="//;s/"$//'
+  { curl -fsS -b "$jar" -c "$jar" "$1" | grep -o 'name="_glpi_csrf_token" value="[^"]*"\|glpi:csrf_token" content="[^"]*"' \
+    | head -1 | sed 's/.*\(value\|content\)="//;s/"$//'; } || true
 }
 say "connexion à $url"
 token=$(csrf "$url/")
@@ -77,5 +78,5 @@ if [ "$purger" = --purger ]; then
   done
   php_essai purger
 fi
-docker exec "$c" rm -f /tmp/lab-essai-vaultwarden.php
+docker exec -u root "$c" rm -f /tmp/lab-essai-vaultwarden.php
 exit $rc
