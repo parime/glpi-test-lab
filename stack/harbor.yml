@@ -37,6 +37,9 @@ services:
     image: goharbor/harbor-db:${LAB_HARBOR_VERSION:-v2.15.5}
     environment:
       POSTGRES_PASSWORD: "${LAB_HARBOR_DB_PASSWORD:?mot de passe absent, lancer ./lab init}"
+      # Disque lent : l'arrêt du serveur temporaire de l'initialisation dépasse les 60 s par défaut
+      # de pg_ctl (« server does not shut down »), ce qui fait échouer le premier démarrage.
+      PGCTLTIMEOUT: "900"
     volumes:
       - database:/var/lib/postgresql/data
       - type: tmpfs
@@ -270,7 +273,9 @@ services:
       default: {}
       lab-net:
         aliases: [harbor]
+    # Test de l'image sur le port 8080 : ici nginx écoute sur 8130.
     healthcheck:
+      test: ["CMD-SHELL", "curl --fail -s http://localhost:8130 || exit 1"]
       start_period: 15m
     deploy:
       restart_policy: *restart

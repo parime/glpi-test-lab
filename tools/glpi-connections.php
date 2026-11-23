@@ -137,4 +137,27 @@ while (($line = fgets(STDIN)) !== false) {
     }
 }
 lab_say(sprintf('%d connexion(s) à jour, %d erreur(s)', $count, $errors));
+
+// --import : test de chaque connexion du labo, puis import (comme les tâches automatiques), pour
+// vérifier que les connecteurs lisent de vraies données.
+if (in_array('--import', $argv, true)) {
+    global $DB;
+    $table = \GlpiPlugin\Dockerinventory\Connection::getTable();
+    foreach ($DB->request(['FROM' => $table, 'WHERE' => ['name' => ['LIKE', LAB_PREFIX . '%'], 'is_active' => 1]]) as $row) {
+        $conn = new \GlpiPlugin\Dockerinventory\Connection();
+        $conn->getFromDB((int) $row['id']);
+        $test = $conn->testConnection();
+        lab_say(sprintf('%s : test %s : %s', $row['name'], $test['ok'] ? 'réussi' : 'échoué', html_entity_decode(strip_tags($test['message']))));
+        if (!$test['ok']) {
+            $errors++;
+            continue;
+        }
+        if ($conn->isHarbor()) {
+            $msg = \GlpiPlugin\Dockerinventory\Connection::harborMessage($conn->runHarborImport());
+        } else {
+            $msg = $conn->importMessage($conn->runImport());
+        }
+        lab_say(sprintf('%s : %s', $row['name'], html_entity_decode(strip_tags($msg))));
+    }
+}
 exit($errors > 0 ? 1 : 0);

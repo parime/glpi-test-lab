@@ -6,7 +6,9 @@
 # « apr1 ») : compte glpi-lecture, empreinte générée par le crochet stack/wud8/hook.sh.
 
 services:
-  wud:
+  # Nom « wud8 » et non « wud » : Swarm donne aussi au service son nom court sur lab-net, et deux
+  # services « wud » (piles lab-wud et lab-wud8) y seraient joints au hasard.
+  wud8:
     image: ${LAB_WUD8_IMAGE:-getwud/wud:8.4.0}
     environment:
       TZ: Europe/Paris

@@ -24,9 +24,10 @@ Usage : ./lab <commande> [arguments]
                            démarre (profils : voir profiles.txt ; instances : instances.txt), puis
                            crée les comptes d'API et les données de démonstration des briques
   seed <profil|brique>…    recrée ce qui manque (comptes d'API, données de démonstration)
-  connect <instance…> [-- <brique…>]
+  connect [--import] <instance…> [-- <brique…>]
                            crée ou met à jour les connexions des briques démarrées dans les GLPI
-                           (Inventaire Docker), et autorise leurs réseaux privés
+                           (Inventaire Docker), et autorise leurs réseaux privés ; --import teste
+                           chaque connexion et lance son import
   down [--force] [<profil|brique|instance>…]
                            arrête (tout le labo sans argument) ; refuse si une instance est verrouillée
   status                   état des piles, des instances GLPI (HTTP, verrou) et mémoire utilisée
@@ -235,10 +236,13 @@ cmd_up() {
     esac
   done
   # Comptes d'API et données de démonstration (LAB_NO_SEED=1 pour s'en passer).
+  # Une brique en échec n'empêche pas les suivantes : `./lab seed <brique>` la reprend.
+  local failed=()
   if [ "${LAB_NO_SEED:-0}" != 1 ]; then
-    for u in "${seeds[@]}"; do run_hook "$u" seed; done
+    for u in "${seeds[@]}"; do run_hook "$u" seed || failed+=("$u"); done
   fi
   for u in "${todo[@]}"; do init_instance "$u"; done
+  [ ${#failed[@]} -eq 0 ] || die "données non créées pour : ${failed[*]} (./lab logs <brique>, puis ./lab seed ${failed[*]})"
 }
 
 cmd_seed() {
@@ -254,12 +258,13 @@ cmd_seed() {
 # (JSON, une par ligne) ; tools/glpi-connections.php les crée ou les met à jour dans le plugin
 # Inventaire Docker de chaque instance et y autorise les contextes vers les réseaux privés.
 cmd_connect() {
-  local names=() briques=() a sep=0
+  local names=() briques=() a sep=0 opts=()
   for a in "$@"; do
+    if [ "$a" = --import ]; then opts+=(--import); continue; fi
     if [ "$a" = -- ]; then sep=1; continue; fi
     if [ $sep = 1 ]; then briques+=("$a"); else names+=("$a"); fi
   done
-  [ ${#names[@]} -ge 1 ] || die "usage : ./lab connect <instance|profil…> [-- <brique|profil…>]"
+  [ ${#names[@]} -ge 1 ] || die "usage : ./lab connect [--import] <instance|profil…> [-- <brique|profil…>]"
   ensure_env; load_env
   local b u specs="" running
   running=$(lab_stacks)
@@ -279,7 +284,8 @@ cmd_connect() {
     [ -n "$c" ] || die "$name n'est pas démarrée"
     info "$name : connexions des briques"
     docker cp tools/glpi-connections.php "$c:/tmp/lab-glpi-connections.php" >/dev/null
-    printf '%s' "$specs" | docker exec -i -u www-data -w /var/www/glpi "$c" php /tmp/lab-glpi-connections.php       || { info "$name : connexions incomplètes (messages ci-dessus)"; rc=1; }
+    printf '%s' "$specs" | docker exec -i -u www-data -w /var/www/glpi "$c" php /tmp/lab-glpi-connections.php "${opts[@]}" \
+      || { info "$name : connexions incomplètes (messages ci-dessus)"; rc=1; }
   done
   return $rc
 }
