@@ -346,7 +346,8 @@ reset_brique() {
   fi
   info "effacement des volumes de $b"
   for v in $(docker volume ls -q -f "label=com.docker.stack.namespace=$s"); do docker volume rm "$v" >/dev/null; done
-  run_hook "$b" reset
+  # Jetons oubliés par le crochet : retirés aussi de l'environnement de lab, déjà chargé.
+  for v in $(run_hook "$b" reset); do unset "$v"; done
   cmd_up "$b"
 }
 

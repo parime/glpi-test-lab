@@ -38,6 +38,17 @@ prepare() {
   # Clé de chiffrement des mots de passe enregistrés : exactement 16 caractères.
   secret_file harbor/secretkey gen_secret 8
   secret_file harbor/registry_passwd htpasswd_bcrypt harbor_registry_user "$LAB_HARBOR_REGISTRY_PASSWORD"
+
+  # Volumes écrits par l'utilisateur harbor (uid 10000) des images, alors qu'un volume neuf
+  # appartient à root (« mkdir /storage/docker: permission denied ») : créés d'avance, avec
+  # l'étiquette de la pile (pour `lab reset harbor`), et donnés à l'uid 10000.
+  local v args=()
+  for v in registry job_logs trivy trivy_reports; do
+    docker volume inspect "lab-harbor_$v" >/dev/null 2>&1 \
+      || docker volume create --label com.docker.stack.namespace=lab-harbor "lab-harbor_$v" >/dev/null
+    args+=(-v "lab-harbor_$v:/v/$v")
+  done
+  docker run --rm "${args[@]}" "${LAB_ALPINE_IMAGE:-alpine:3.20}" chown 10000:10000 /v/registry /v/job_logs /v/trivy /v/trivy_reports
 }
 
 # crane : identifiants de Harbor dans un config.json monté en lecture seule le temps de la copie.

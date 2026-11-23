@@ -7,6 +7,8 @@
 #   GET /api/v1/version, POST /api/v1/admin/users, POST /api/v1/users/{u}/tokens, POST /api/v1/orgs,
 #   POST /api/v1/orgs/{org}/repos, GET/POST /api/v1/repos/{o}/{r}/contents/{chemin},
 #   GET/POST /api/v1/repos/{o}/{r}/labels, GET/POST /api/v1/repos/{o}/{r}/issues.
+# Corps JSON toujours produits par json_obj (accents échappés en \uXXXX) : curl de Git Bash
+# convertit ses arguments dans la page de code de Windows, et un « é » brut arriverait invalide.
 # shellcheck disable=SC1091
 . "$LAB_ROOT/lib/brique.sh"
 
@@ -55,7 +57,7 @@ seed() {
   fi
 
   if ! exists "$API/orgs/demo"; then
-    fa -X POST "$API/orgs" -d '{"username":"demo","full_name":"Démonstration (fictif)","visibility":"public"}' >/dev/null
+    fa -X POST "$API/orgs" -d "$(json_obj username=demo full_name="Démonstration (fictif)" visibility=public)" >/dev/null
     info "organisation demo créée"
   fi
 
@@ -85,7 +87,8 @@ seed_issues() {
   label=$(fa "$API/repos/demo/$repo/labels" | "$PY" -c 'import sys, json
 print(next((str(l["id"]) for l in json.load(sys.stdin) if l["name"] == "sécurité"), ""))')
   if [ -z "$label" ]; then
-    label=$(fa -X POST "$API/repos/demo/$repo/labels" -d '{"name":"sécurité","color":"#d73a4a","description":"Vulnérabilité ou correctif de sécurité"}' | json_get id)
+    label=$(fa -X POST "$API/repos/demo/$repo/labels" -d "$(json_obj name=sécurité color="#d73a4a" \
+      description="Vulnérabilité ou correctif de sécurité")" | json_get id)
   fi
   case "$repo" in
     boutique-web) title="Mettre à jour lodash (CVE-2020-8203)"

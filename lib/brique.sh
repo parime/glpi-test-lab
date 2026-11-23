@@ -54,12 +54,14 @@ PYEOF
   export "$key=$value"
 }
 
-# Retire des variables de .env (jetons à régénérer après un `lab reset <brique>`).
+# Retire des variables de .env (jetons à régénérer après un `lab reset <brique>`) et écrit leurs
+# noms sur la sortie standard : `lab` les retire aussi de son propre environnement.
 env_unset() {
   local key
   for key in "$@"; do
     sed -i "/^$key=/d" "$LAB_ROOT/.env"
     unset "$key"
+    echo "$key"
   done
 }
 
