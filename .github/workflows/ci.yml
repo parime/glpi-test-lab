@@ -48,7 +48,7 @@ jobs:
           while IFS='=' read -r k v; do export "$k=${v:-ci}"; done < <(grep -E '^LAB_[A-Z0-9_]+=' .env.example)
           export LAB_DB_PASSWORD=ci LAB_DB_ROOT_PASSWORD=ci LAB_WUD8_GLPI_HASH=ci LAB_TRAEFIK_GLPI_HASH=ci
           export LAB_SECRETS_DIR="$PWD/secrets"
-          for s in portainer/admin_password harbor/private_key.pem harbor/root.crt harbor/secretkey                    harbor/registry_passwd registry/htpasswd; do
+          for s in portainer/admin_password harbor/private_key.pem harbor/root.crt harbor/secretkey                    harbor/registry_passwd registry/htpasswd vaultwarden/cert.pem vaultwarden/key.pem; do
             mkdir -p "secrets/$(dirname "$s")"; echo ci > "secrets/$s"
           done
           : > ports.txt
