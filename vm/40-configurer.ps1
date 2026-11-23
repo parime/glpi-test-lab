@@ -197,7 +197,7 @@ Invoke-Command -ComputerName localhost -Credential `$cred -ArgumentList `$suppor
     `$sortie += "annuaire : `$(`$r.ComptesCrees) comptes, `$(`$r.GroupesCrees) groupes, `$(`$r.UnitesCreees) OU créés"
     `$sortie += & (Join-Path `$Support 'gpo-glpi-agent.ps1') -DossierSource `$Support -Msi '$($ga.Msi)' -Url '$($config.Glpi.UrlAgent)' -Tag '$($config.Glpi.Tag)' -AddLocal '$($ga.AddLocalWindows)' -OuPostes '$ouPostes'
     New-Item -ItemType Directory -Force -Path 'C:\lab' | Out-Null
-    & certutil.exe -f -ca.cert 'C:\lab\lab-ca.cer' | Out-Null
+    & certutil.exe -f '-ca.cert' 'C:\lab\lab-ca.cer'   # verbe entre guillemets : PowerShell couperait « -ca.cert » | Out-Null
     `$sortie -join ' ; '
 }
 "@
