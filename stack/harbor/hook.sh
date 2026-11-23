@@ -22,11 +22,18 @@ hc() { curl -fsS -u "admin:$LAB_HARBOR_ADMIN_PASSWORD" -H 'Content-Type: applica
 
 prepare() {
   # Paire de clés des jetons du registre (comme `prepare` de l'installateur : RSA 4096, 10 ans).
-  if [ ! -s "$LAB_SECRETS_DIR/harbor/private_key.pem" ] || [ ! -s "$LAB_SECRETS_DIR/harbor/root.crt" ]; then
+  # Format PKCS#1 (« BEGIN RSA PRIVATE KEY ») exigé par Harbor : OpenSSL 3 écrit du PKCS#8 par
+  # défaut, que harbor-core refuse (« unable to get PrivateKey from PEM type: PRIVATE KEY »).
+  local key="$LAB_SECRETS_DIR/harbor/private_key.pem"
+  if [ -s "$key" ] && ! grep -q 'BEGIN RSA PRIVATE KEY' "$key"; then
+    rm -f "$key" "$LAB_SECRETS_DIR/harbor/root.crt"
+  fi
+  if [ ! -s "$key" ] || [ ! -s "$LAB_SECRETS_DIR/harbor/root.crt" ]; then
     mkdir -p "$LAB_SECRETS_DIR/harbor"
-    MSYS2_ARG_CONV_EXCL='*' openssl req -x509 -nodes -newkey rsa:4096 -days 3650 -subj "/CN=harbor-token-issuer" \
-      -keyout "$LAB_SECRETS_DIR/harbor/private_key.pem" -out "$LAB_SECRETS_DIR/harbor/root.crt" 2>/dev/null
-    info "secret généré : secrets/harbor/private_key.pem et root.crt"
+    openssl genrsa -traditional -out "$key" 4096 2>/dev/null
+    MSYS2_ARG_CONV_EXCL='*' openssl req -new -x509 -key "$key" -days 3650 -subj "/CN=harbor-token-issuer" \
+      -out "$LAB_SECRETS_DIR/harbor/root.crt"
+    info "secret généré : secrets/harbor/private_key.pem (PKCS#1) et root.crt"
   fi
   # Clé de chiffrement des mots de passe enregistrés : exactement 16 caractères.
   secret_file harbor/secretkey gen_secret 8
@@ -65,8 +72,12 @@ sys.exit(0 if any(p["name"] == "demo" for p in json.load(sys.stdin) or []) else 
   # Compte robot en lecture seule, recréé si son secret n'est plus dans .env.
   if [ -z "${LAB_HARBOR_ROBOT_SECRET:-}" ]; then
     local id resp
-    for id in $(hc "$API/robots?q=name%3D~glpi-lecture" | "$PY" -c 'import sys, json
-print(" ".join(str(r["id"]) for r in json.load(sys.stdin) or []))'); do
+    # Anciens robots du même nom (secret perdu) : supprimés ; liste vide si l'API hésite encore.
+    for id in $(hc "$API/robots?q=name%3D~glpi-lecture" 2>/dev/null | "$PY" -c 'import sys, json
+try:
+    print(" ".join(str(r["id"]) for r in json.load(sys.stdin) or []))
+except ValueError:
+    pass'); do
       hc -X DELETE "$API/robots/$id" >/dev/null
     done
     resp=$(hc -X POST "$API/robots" -d '{"name":"glpi-lecture","description":"GLPI Inventaire Docker (lecture seule, labo)",

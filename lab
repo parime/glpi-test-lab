@@ -194,8 +194,16 @@ deploy_brique() {
   info "brique $1"
   run_hook "$1" prepare
   load_env   # le crochet a pu ajouter des secrets à .env
-  LAB_CONFIG_VERSION=$(config_version "$1") LAB_SECRETS_DIR=$ROOT_W/secrets \
-    docker stack deploy --detach=true --resolve-image never -c "stack/$1.yml" "$STACK_PREFIX$1" >/dev/null
+  # « update out of sequence » : un service était encore en cours de mise à jour ; on réessaie.
+  local n
+  for n in 1 2 3; do
+    if LAB_CONFIG_VERSION=$(config_version "$1") LAB_SECRETS_DIR=$ROOT_W/secrets \
+      docker stack deploy --detach=true --resolve-image never -c "stack/$1.yml" "$STACK_PREFIX$1" >/dev/null; then
+      return 0
+    fi
+    [ $n = 3 ] || { info "$1 : nouvel essai du déploiement dans 30 s"; sleep 30; }
+  done
+  die "$1 : déploiement refusé par Swarm (voir le message ci-dessus)"
 }
 
 # Attend l'installation automatique de GLPI, puis règle la langue et l'adresse (une seule fois).

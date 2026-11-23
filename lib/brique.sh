@@ -8,6 +8,9 @@
 # Chaque action est rejouable sans effet de bord (on vérifie avant de créer).
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
+# Python de Windows : entrées et sorties en UTF-8 (sinon cp1252, et les accents envoyés aux API
+# arrivent invalides).
+export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
 
 LAB_ROOT=${LAB_ROOT:-$(pwd)}
 # Chemin lisible par docker.exe et python.exe sous Git Bash (F:/Dev/...), inchangé sous Linux.

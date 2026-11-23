@@ -14,7 +14,18 @@ API=http://localhost:8140/api/v1
 DEMO="$LAB_ROOT/stack/forgejo/demo"
 
 fa() { curl -fsS -u "lab-admin:$LAB_FORGEJO_ADMIN_PASSWORD" -H 'Content-Type: application/json' "$@"; }
-exists() { curl -fsS -o /dev/null -u "lab-admin:$LAB_FORGEJO_ADMIN_PASSWORD" "$1"; }
+exists() { curl -fs -o /dev/null -u "lab-admin:$LAB_FORGEJO_ADMIN_PASSWORD" "$1"; }
+
+# Un fichier du dépôt : GET …/contents/<chemin> répond 200 même sur un dépôt vide, d'où le test
+# du type renvoyé.
+file_exists() {
+  curl -fs -u "lab-admin:$LAB_FORGEJO_ADMIN_PASSWORD" "$1" 2>/dev/null | "$PY" -c 'import sys, json
+try:
+    d = json.load(sys.stdin)
+except ValueError:
+    sys.exit(1)
+sys.exit(0 if isinstance(d, dict) and d.get("type") == "file" else 1)'
+}
 
 container() { docker ps -q -f label=com.docker.swarm.service.name=lab-forgejo_forgejo | head -1; }
 
@@ -58,7 +69,7 @@ seed() {
     fi
     while IFS= read -r f; do
       rel=${f#"$d"}
-      exists "$API/repos/demo/$repo/contents/$rel" && continue
+      file_exists "$API/repos/demo/$repo/contents/$rel" && continue
       fa -X POST "$API/repos/demo/$repo/contents/$rel" -d "$("$PY" -c 'import base64, json, sys
 print(json.dumps({"content": base64.b64encode(open(sys.argv[1], "rb").read()).decode(),
                   "message": "Ajout de " + sys.argv[2] + " (données fictives du labo)"}))' "$(cygpath -m "$f" 2>/dev/null || echo "$f")" "$rel")" >/dev/null
