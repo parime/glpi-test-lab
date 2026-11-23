@@ -273,14 +273,15 @@ cmd_connect() {
     specs+="$(run_hook "$b" connect)"$'\n'
   done
   [ -n "${specs//$'\n'/}" ] || die "aucune brique démarrée qui sache se connecter à GLPI (./lab up docker)"
-  local name c
+  local name c rc=0
   for name in $(expand "${names[@]}" | sed -n 's/^i://p'); do
     c=$(glpi_container "$name")
     [ -n "$c" ] || die "$name n'est pas démarrée"
     info "$name : connexions des briques"
     docker cp tools/glpi-connections.php "$c:/tmp/lab-glpi-connections.php" >/dev/null
-    printf '%s' "$specs" | docker exec -i -u www-data -w /var/www/glpi "$c" php /tmp/lab-glpi-connections.php
+    printf '%s' "$specs" | docker exec -i -u www-data -w /var/www/glpi "$c" php /tmp/lab-glpi-connections.php       || { info "$name : connexions incomplètes (messages ci-dessus)"; rc=1; }
   done
+  return $rc
 }
 
 # ---------------------------------------------------------------------------- down / reset

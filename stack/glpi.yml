@@ -75,6 +75,11 @@ services:
     volumes:
       - var:/var/glpi
       - plugins:/var/www/glpi/plugins
+    # Inclut /var/glpi/config/local_define.php (volume), écrit par `./lab connect`.
+    configs:
+      - source: local_define
+        target: /var/www/glpi/config/local_define.php
+        mode: 0444
     ports:
       - target: 80
         published: ${LAB_PORT:?port absent}
@@ -102,6 +107,11 @@ services:
           cpus: "1.5"
         reservations:
           memory: 128M
+
+configs:
+  local_define:
+    name: lab-${LAB_INSTANCE}-local-define-v1
+    file: ./glpi/local_define.php
 
 volumes:
   db:

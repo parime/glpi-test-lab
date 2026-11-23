@@ -10,6 +10,8 @@
 
 API=http://localhost:8120/api
 
+stack_gone() { [ -z "$(docker ps -aq -f "label=com.docker.stack.namespace=$1")" ]; }
+
 login() {
   curl -fsS -X POST "$API/auth" -H 'Content-Type: application/json' \
     -d "$(json_obj username="$1" password="$2")" | json_get jwt
@@ -58,7 +60,7 @@ sys.exit(0 if any(s["Name"] == "lab-demo" for s in json.load(sys.stdin)) else 1)
     if docker stack ls --format '{{.Name}}' | grep -qx lab-demo; then
       info "lab-demo existe déjà hors Portainer (./lab up demo) : arrêtée puis redéployée par Portainer"
       docker stack rm lab-demo >/dev/null
-      wait_for "lab-demo arrêtée" 300 sh -c '[ -z "$(docker ps -aq -f label=com.docker.stack.namespace=lab-demo)" ]'
+      wait_for "lab-demo arrêtée" 300 stack_gone lab-demo
     fi
     local body
     body=$("$PY" -c 'import json, sys
