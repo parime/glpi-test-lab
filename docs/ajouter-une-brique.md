@@ -13,8 +13,12 @@ Une brique (Portainer, Zabbix, Forgejo…) est un fichier `stack/<brique>.yml`, 
    - données : volumes Docker nommés, jamais un dossier de Windows (voir architecture.md,
      « Pourquoi pas de dossier de Windows ») ; une sauvegarde lisible va dans
      `F:\Dev\glpi-test-lab-data\backups` (`./lab backup`) ;
-   - **taille au plus juste** : `deploy.resources.limits` (mémoire **et** CPU, la CI refuse un
-     service sans) et `reservations.memory`, d'après une mesure avec `./lab mem`.
+   - **taille au plus juste** : `deploy.resources.limits` (mémoire **et** CPU) et
+     `reservations.memory` (la CI refuse un service sans), d'après une mesure avec `./lab mem`.
+   - comptes d'API, données de démonstration et connexion à GLPI : un crochet
+     `stack/<brique>/hook.sh` (actions `prepare`, `seed`, `reset`, `connect`, fonctions communes dans
+     `lib/brique.sh`, exemples dans `stack/wud/hook.sh` et `stack/harbor/hook.sh`) ; configs et
+     secrets Swarm nommés `lab-<brique>-<nom>-${LAB_CONFIG_VERSION}` (empreinte des fichiers).
 2. Ajouter le profil dans `profiles.txt` si la brique fait partie d'un groupe (par exemple
    `docker portainer wud harbor forgejo`).
 3. Vérifier : `./lab up <brique>`, `./lab status`, `./lab mem`, puis `./lab down <brique>`.

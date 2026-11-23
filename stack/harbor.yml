@@ -56,7 +56,7 @@ services:
           memory: 64M
 
   redis:
-    image: goharbor/redis-photon:${LAB_HARBOR_VERSION:-v2.15.5}
+    image: goharbor/valkey-photon:${LAB_HARBOR_VERSION:-v2.15.5}
     volumes:
       - redis:/var/lib/redis
     healthcheck:
