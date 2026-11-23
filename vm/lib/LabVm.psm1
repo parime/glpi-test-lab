@@ -390,7 +390,8 @@ function Invoke-LabPve {
     if ($Fichiers.Count -gt 0) {
         foreach ($cle in $Parametres.Keys) { $arguments += @('--form-string', "$cle=$($Parametres[$cle])") }
         foreach ($cle in $Fichiers.Keys) { $arguments += @('-F', "$cle=@$($Fichiers[$cle])") }
-    } elseif ($Methode -eq 'GET' -and $Parametres.Count -gt 0) {
+    } elseif ($Methode -in 'GET', 'DELETE' -and $Parametres.Count -gt 0) {
+        # GET et DELETE : paramètres dans l'URL (pveproxy refuse un corps pour DELETE).
         $arguments += '-G'
         foreach ($cle in $Parametres.Keys) { $arguments += @('--data-urlencode', "$cle=$($Parametres[$cle])") }
     } else {
