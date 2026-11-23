@@ -96,6 +96,36 @@ par Docker Hub.
 - **Non monté (payant)** : Portainer Business (journal d'activité, rôles fins de
   parime/glpi-docker-inventory#81).
 
+## Robustesse
+
+- Toutes les briques sont des services Swarm (`restart_policy: any`), avec leurs données dans des
+  volumes Docker nommés. Leurs tests de santé ont un long délai de démarrage (15 à 30 min), car le
+  disque est lent et une relance en pleine initialisation (PostgreSQL de Harbor) casserait tout.
+- Essai du 23/11 : arrêt brutal (`docker kill`) des 26 conteneurs des briques et des piles de
+  démonstration. Swarm a relancé les 25 services seul, en 7 min 35 s (disque chargé). Aucune
+  commande n'a été nécessaire. `./lab connect --import` a ensuite tout relu sans erreur : jetons,
+  compte robot, images et analyses étaient intacts.
+- `docker desktop restart` n'a pas été essayé : il arrête aussi les instances g12 à g12d de
+  glpi-test-env, qui ne repartent pas seules (voir architecture.md). L'essai du lot #2 a montré que
+  les services Swarm, eux, repartent après ce redémarrage.
+
+## Vérifier ce que lisent les connecteurs
+
+```sh
+./lab connect --import glpi12-a
+```
+
+Pour chaque connexion « Labo - … », la commande lance le test de connexion puis l'import, comme le
+fait la tâche automatique. Résultat du 23/11 sur glpi12-a (GLPI 12.0.2, Inventaire Docker de main) :
+
+| Connexion | Test | Import |
+|---|---|---|
+| Portainer | 1 environnement visible avec la clé | 2 piles, 8 services, 1 nœud |
+| WUD 9 | WUD 9.9.0, 5 conteneurs suivis | 5 conteneurs, 4 services suivis |
+| WUD 8 | WUD 8.4.0, 5 conteneurs suivis | 5 conteneurs, 4 services suivis |
+| Traefik 3 et 2 | 3 routes HTTP | 4 routes, 3 signalements |
+| Harbor | registre et API acceptent le robot | 2 projets, 4 dépôts, 5 artefacts, tous analysés (de 74 à 98 vulnérabilités par image, dont des critiques) |
+
 ## Limites connues
 
 - Portainer CE n'a pas de rôle « lecture seule » : `glpi-lecture` est un utilisateur standard. Son
