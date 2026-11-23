@@ -25,6 +25,44 @@ Ces mesures ont été prises avec un tampon InnoDB de 128 Mio ; il est maintenan
 Pour comparaison, une instance g12 de glpi-test-env (base de démonstration chargée, plusieurs
 plugins) occupe de 0,6 à 1 Gio.
 
+### Briques Docker (lot #3)
+
+Mesures du 23/11 (`./lab mem`), après `./lab up` et l'amorçage (comptes, images copiées, analyses
+Trivy terminées). Le disque était chargé (3 instances GLPI, g12 à g12d, Wazuh et la VM Proxmox en
+marche à côté). Les valeurs sont la mémoire résidente, cache de pages compris.
+
+| Brique | Services | Au repos, amorcée | Limites mémoire (somme) |
+|---|---|---|---|
+| `portainer` | serveur + agent | 127 Mio | 352 Mio |
+| `wud` | WUD 9.9 | 81 Mio | 256 Mio |
+| `wud8` | WUD 8.4 | 90 Mio | 192 Mio |
+| `harbor` | 9 services (core 61, PostgreSQL 79, registre 68, Trivy 27, jobservice 22…) | 276 Mio | 2 080 Mio, dont Trivy 768 |
+| `registry` | registry:2 | 9 Mio | 128 Mio |
+| `forgejo` | Forgejo (SQLite) | 202 Mio | 384 Mio |
+| `traefik` | Traefik 3 + Traefik 2 | 72 Mio | 192 Mio |
+| piles `lab-demo` et `lab-demo-harbor` | 8 petits services | 34 + 31 Mio | 272 Mio (par réplica) |
+| **profil `docker`** | tout | **environ 0,9 Gio** | |
+| **profil `docker-leger`** | sans Harbor ni Forgejo | **environ 0,4 Gio** | |
+
+À retenir : **compter 1 Gio pour le profil `docker`**. Pendant une analyse, Trivy charge sa base
+en mémoire : son pic n'a pas été mesuré, il est plafonné à 768 Mio par l'adaptateur Trivy. C'est bien
+moins que les 2 à 4 Go annoncés pour Harbor (#3), parce que le conteneur de journaux est retiré
+et que le nombre de travailleurs et de connexions est réduit.
+
+Chaque service a une limite de mémoire et de CPU et une réservation (`deploy.resources`, vérifiées
+par la CI). Les limites valent environ deux à trois fois l'usage mesuré, pour laisser de la marge
+aux pics (premier démarrage, analyses, imports).
+
+### Durées (disque F: chargé, 23/11)
+
+| Étape | Durée |
+|---|---|
+| Portainer, WUD, registre, Traefik : `lab up` puis amorçage | 3 à 8 min chacun |
+| Harbor, premier démarrage (initialisation de PostgreSQL, synchronisation du disque) | environ 40 min |
+| Harbor, copie des 5 images et analyses Trivy (base Trivy téléchargée au premier passage) | 10 min environ |
+| Forgejo, premier démarrage et dépôts de démonstration | 5 min environ |
+| Reprise après l'arrêt brutal (`docker kill`) des 26 conteneurs des briques : 25 services de nouveau prêts, sans commande, données et jetons intacts | 7 min 35 s |
+
 ## Plafonds
 
 Au plus juste, d'après les mesures ci-dessus (environ deux fois l'usage mesuré, pour

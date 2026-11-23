@@ -43,13 +43,30 @@ jobs:
           LAB_DB_PASSWORD: ci
         run: |
           set -e
+          # Variables des briques : celles de .env.example, les vides (mots de passe) valant « ci » ;
+          # empreintes et fichiers de secrets générés d'ordinaire par les crochets : factices.
+          while IFS='=' read -r k v; do export "$k=${v:-ci}"; done < <(grep -E '^LAB_[A-Z0-9_]+=' .env.example)
+          export LAB_DB_PASSWORD=ci LAB_DB_ROOT_PASSWORD=ci LAB_WUD8_GLPI_HASH=ci LAB_TRAEFIK_GLPI_HASH=ci
+          export LAB_SECRETS_DIR="$PWD/secrets"
+          for s in portainer/admin_password harbor/private_key.pem harbor/root.crt harbor/secretkey                    harbor/registry_passwd registry/htpasswd; do
+            mkdir -p "secrets/$(dirname "$s")"; echo ci > "secrets/$s"
+          done
+          : > ports.txt
           for f in stack/*.yml; do
             echo "== $f"
             docker compose -f "$f" config --quiet
-            # Taille au plus juste : chaque service a une limite de mémoire et de CPU.
-            missing=$(docker compose -f "$f" config --format json | jq -r '.services | to_entries[] | select((.value.deploy.resources.limits.memory // "") == "" or (.value.deploy.resources.limits.cpus // "") == "") | .key')
-            if [ -n "$missing" ]; then echo "::error file=$f::services sans limite deploy.resources : $missing"; exit 1; fi
+            json=$(docker compose -f "$f" config --format json)
+            # Taille au plus juste : chaque service a une limite de mémoire et de CPU, et une réservation.
+            missing=$(echo "$json" | jq -r '.services | to_entries[] | select((.value.deploy.resources.limits.memory // "") == "" or (.value.deploy.resources.limits.cpus // "") == "" or (.value.deploy.resources.reservations.memory // "") == "") | .key')
+            if [ -n "$missing" ]; then echo "::error file=$f::services sans limite ou réservation deploy.resources : $missing"; exit 1; fi
+            # Ports publiés des briques : plage 8120-8199 (ceux des instances GLPI sont vérifiés plus bas).
+            if [ "$f" != stack/glpi.yml ]; then
+              echo "$json" | jq -r --arg f "$f" '.services[].ports[]?.published | "\(.) \($f)"' >> ports.txt
+            fi
           done
+          awk '$1 < 8120 || $1 > 8199 { print "::error file=" $2 "::port hors de la plage 8120-8199 : " $1; bad = 1 }
+               seen[$1]++ { print "::error file=" $2 "::port publié deux fois : " $1; bad = 1 }
+               END { exit bad }' ports.txt
       - name: Instances et profils
         run: |
           set -e

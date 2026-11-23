@@ -1,0 +1,122 @@
+# Pile de démonstration « lab-demo » : quelques services aux images anciennes (des mises à jour et
+# des vulnérabilités connues existent), pour que Portainer, WUD, Traefik et l'Inventaire Docker
+# aient quelque chose à lire. Toutes les données sont fictives.
+#
+# Déployée PAR Portainer (crochet stack/portainer/hook.sh, utilisateur glpi-lecture) pour que
+# l'utilisateur standard de Portainer la voie ; `./lab up demo` la déploie aussi sans Portainer.
+# Pas de variable dans ce fichier : Portainer le reçoit tel quel.
+#
+# Étiquettes : wud.watch (suivi par WUD, qui ne surveille que les conteneurs marqués) ; traefik.*
+# (routeurs, services et intergiciels lus par l'API de Traefik, brique traefik).
+
+services:
+  vitrine:
+    image: nginx:1.25.3-alpine
+    labels:
+      wud.watch: "true"
+      wud.tag.include: '^\d+\.\d+\.\d+-alpine$$'
+    networks: [default, lab-net]
+    deploy:
+      replicas: 2
+      labels:
+        traefik.enable: "true"
+        traefik.http.routers.vitrine.rule: Host(`vitrine.lab.test`)
+        traefik.http.routers.vitrine.entrypoints: web
+        traefik.http.routers.vitrine.middlewares: entetes-securite
+        traefik.http.middlewares.entetes-securite.headers.frameDeny: "true"
+        traefik.http.middlewares.entetes-securite.headers.contentTypeNosniff: "true"
+        traefik.http.services.vitrine.loadbalancer.server.port: "80"
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 32M
+          cpus: "0.25"
+        reservations:
+          memory: 8M
+
+  portail:
+    image: httpd:2.4.57-alpine
+    labels:
+      wud.watch: "true"
+      wud.tag.include: '^\d+\.\d+\.\d+-alpine$$'
+    networks: [default, lab-net]
+    deploy:
+      labels:
+        traefik.enable: "true"
+        traefik.http.routers.portail.rule: Host(`portail.lab.test`) && PathPrefix(`/intranet`)
+        traefik.http.routers.portail.entrypoints: web
+        traefik.http.routers.portail.middlewares: sans-prefixe
+        traefik.http.middlewares.sans-prefixe.stripprefix.prefixes: /intranet
+        traefik.http.services.portail.loadbalancer.server.port: "80"
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 32M
+          cpus: "0.25"
+        reservations:
+          memory: 8M
+
+  cache:
+    image: redis:7.0.15-alpine
+    labels:
+      wud.watch: "true"
+      wud.tag.include: '^\d+\.\d+\.\d+-alpine$$'
+    deploy:
+      labels:
+        traefik.enable: "true"
+        traefik.tcp.routers.cache.rule: HostSNI(`*`)
+        traefik.tcp.routers.cache.entrypoints: redis
+        traefik.tcp.services.cache.loadbalancer.server.port: "6379"
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 32M
+          cpus: "0.25"
+        reservations:
+          memory: 8M
+    networks: [default, lab-net]
+
+  sessions:
+    image: memcached:1.6.21-alpine
+    labels:
+      wud.watch: "true"
+      wud.tag.include: '^\d+\.\d+\.\d+-alpine$$'
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 32M
+          cpus: "0.25"
+        reservations:
+          memory: 8M
+
+  # Service arrêté (0 réplica) : un ancien traitement, pour les états « arrêté » de l'inventaire.
+  ancien-batch:
+    image: busybox:1.36.1
+    command: ["sh", "-c", "echo traitement fictif; sleep 3600"]
+    deploy:
+      replicas: 0
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 16M
+          cpus: "0.1"
+        reservations:
+          memory: 4M
+
+networks:
+  default:
+    driver: overlay
+  # Réseau commun du labo : Traefik (brique traefik) y joint les services qu'il publie.
+  lab-net:
+    external: true

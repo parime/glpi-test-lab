@@ -1,0 +1,52 @@
+# Pile de démonstration « lab-demo-harbor » : services dont les images viennent du Harbor du labo
+# (projet public demo, http://localhost:8130), analysées par Trivy : l'Inventaire Docker relie ces
+# services aux vulnérabilités de Harbor (connexion Harbor, hôte du registre localhost:8130).
+# Déployée par le crochet de la brique harbor (stack/harbor/hook.sh), par Portainer si possible.
+# Pas de variable dans ce fichier : Portainer le reçoit tel quel. Données fictives.
+
+services:
+  intranet:
+    image: localhost:8130/demo/httpd:2.4.57-alpine
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 32M
+          cpus: "0.25"
+        reservations:
+          memory: 8M
+
+  # Node.js 18 : fin de support (avril 2025), pour les alertes de cycle de vie.
+  api-commandes:
+    image: localhost:8130/demo/node:18.20.4-alpine
+    command: ["node", "-e", "require('http').createServer((q, r) => r.end('api fictive')).listen(3000)"]
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.25"
+        reservations:
+          memory: 16M
+
+  file-attente:
+    image: localhost:8130/demo/redis:7.0.15-alpine
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 32M
+          cpus: "0.25"
+        reservations:
+          memory: 8M
+
+networks:
+  default:
+    driver: overlay

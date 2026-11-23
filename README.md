@@ -80,6 +80,18 @@ En pratique : **0,4 Gio par instance GLPI en usage**. Limites par conteneur : GL
 installation d'une instance y prend de 25 à 45 minutes, l'installation des tables de GRC de 9 à
 19 minutes ; ensuite les pages répondent en 1 à 2 secondes et `lab down` / `lab up` gardent tout.
 
+## Briques Docker (profil `docker`)
+
+Portainer, What's Up Docker 9 et 8, Harbor avec Trivy, un registre `registry:2`, Forgejo, Traefik 3
+et 2. Chacun vient avec ses comptes d'API et ses données de démonstration (piles `lab-demo` et
+`lab-demo-harbor`, images analysées, dépôts aux dépendances vulnérables). Les briques, leurs ports
+et leurs comptes sont détaillés dans [docs/briques.md](docs/briques.md).
+
+```sh
+./lab up docker            # ou docker-leger (sans Harbor ni Forgejo), ou une brique : ./lab up wud
+./lab connect glpi12-b     # connexions de l'Inventaire Docker (plugin installé au préalable)
+```
+
 ## Démarrage rapide
 
 Depuis Git Bash :
@@ -113,6 +125,8 @@ sh /f/Dev/glpi-test-env/tools/grc-lock.sh release "$G12"
 | `./lab mem` | mémoire utilisée par pile et au total |
 | `./lab container <instance>` | conteneur GLPI de l'instance, pour `docker exec` |
 | `./lab backup <instance\|profil>` | sauvegarde base, `/var/glpi` et plugins dans `F:\Dev\glpi-test-lab-data\backups` |
+| `./lab seed <profil\|brique>` | recrée ce qui manque dans les briques (comptes d'API, données de démonstration) |
+| `./lab connect <instance…>` | connexions « Labo - … » des briques démarrées dans l'Inventaire Docker de l'instance |
 
 `down` et `reset` refusent d'arrêter une instance verrouillée par un agent (`grc-lock.sh`), sauf
 avec `--force`. `lab` ne touche qu'aux piles `lab-*` : jamais aux conteneurs de glpi-test-env.
@@ -135,4 +149,5 @@ avec `--force`. `lab` ne touche qu'aux piles `lab-*` : jamais aux conteneurs de 
 - [Ports](docs/ports.md)
 - [Mémoire par profil](docs/memoire.md)
 - [Compatibilité avec glpi-test-env (verrous, déploiement, tests)](docs/compatibilite.md)
+- [Briques Docker : Portainer, WUD, Harbor, registre, Forgejo, Traefik](docs/briques.md)
 - [Ajouter une brique](docs/ajouter-une-brique.md)

@@ -1,0 +1,45 @@
+# Registre interne de Harbor (modèle registry/config.yml de l'installateur). Le secret HTTP est
+# donné par la variable REGISTRY_HTTP_SECRET (stack/harbor.yml), pas dans ce fichier.
+version: 0.1
+log:
+  level: info
+  fields:
+    service: registry
+storage:
+  cache:
+    layerinfo: redis
+  filesystem:
+    rootdirectory: /storage
+  maintenance:
+    uploadpurging:
+      enabled: true
+      age: 168h
+      interval: 24h
+      dryrun: false
+  delete:
+    enabled: true
+redis:
+  addr: redis:6379
+  readtimeout: 10s
+  writetimeout: 10s
+  dialtimeout: 10s
+  password:
+  db: 1
+  enableTLS: false
+  pool:
+    maxidle: 10
+    maxactive: 50
+    idletimeout: 60s
+http:
+  addr: :5000
+  debug:
+    addr: localhost:5001
+auth:
+  htpasswd:
+    realm: harbor-registry-basic-realm
+    path: /etc/registry/passwd
+validation:
+  disabled: true
+compatibility:
+  schema1:
+    enabled: true

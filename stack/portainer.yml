@@ -1,0 +1,90 @@
+# Brique « portainer » : Portainer CE et son agent, sur le Swarm du labo (déploiement officiel pour
+# Swarm : agent en mode global qui lit le socket Docker, serveur qui parle à l'agent).
+# Documentation : https://docs.portainer.io/start/install-ce/server/swarm/linux
+#
+# Pour l'Inventaire Docker (connecteur Portainer) : environnement Swarm « primary », utilisateur
+# standard glpi-lecture et son jeton d'API, pile de démonstration lab-demo déployée PAR Portainer
+# (stack/demo.yml) ; tout est créé par le crochet stack/portainer/hook.sh (`lab up portainer`).
+#
+# L'agent lit le socket de Docker Desktop : Portainer voit donc aussi les conteneurs hors labo
+# (g12…). L'utilisateur glpi-lecture, standard, ne voit que ce que Portainer lui a donné (lab-demo) ;
+# ne pas se servir de l'administrateur pour modifier autre chose que le labo.
+#
+# Portainer Business (journal d'activité, rôles fins) est payant : non monté.
+
+services:
+  agent:
+    image: ${LAB_PORTAINER_AGENT_IMAGE:-portainer/agent:2.45.4}
+    environment:
+      AGENT_CLUSTER_ADDR: tasks.agent
+      AGENT_SECRET: "${LAB_PORTAINER_AGENT_SECRET:?secret absent, lancer ./lab init}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+    networks: [agent]
+    deploy:
+      mode: global
+      placement:
+        constraints: [node.platform.os == linux]
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 96M
+          cpus: "0.5"
+        reservations:
+          memory: 16M
+
+  portainer:
+    image: ${LAB_PORTAINER_IMAGE:-portainer/portainer-ce:2.45.4}
+    command:
+      - -H
+      - tcp://tasks.agent:9001
+      - --tlsskipverify
+      - --admin-password-file
+      - /run/secrets/portainer_admin_password
+      - --http-enabled
+    environment:
+      AGENT_SECRET: "${LAB_PORTAINER_AGENT_SECRET}"
+    secrets:
+      - source: admin_password
+        target: portainer_admin_password
+    volumes:
+      - data:/data
+    ports:
+      - target: 9000
+        published: 8120
+        protocol: tcp
+        mode: ingress
+    networks:
+      agent: {}
+      lab-net:
+        aliases: [portainer]
+    stop_grace_period: 30s
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 256M
+          cpus: "1"
+        reservations:
+          memory: 48M
+
+secrets:
+  admin_password:
+    name: lab-portainer-admin-${LAB_CONFIG_VERSION:-0}
+    file: ${LAB_SECRETS_DIR:-../secrets}/portainer/admin_password
+
+volumes:
+  data:
+
+networks:
+  agent:
+    driver: overlay
+  lab-net:
+    external: true

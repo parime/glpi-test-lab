@@ -1,0 +1,51 @@
+# Brique « wud8 » : What's Up Docker 8 (dernière 8.x), pour tester le connecteur WUD de
+# l'Inventaire Docker sur l'ancienne version (le code vise WUD 8, la version courante est la 9).
+# Documentation (8.x) : https://github.com/getwud/wud/tree/8.4.0/website/docs
+#
+# Authentification basique par empreinte htpasswd (WUD_AUTH_BASIC_<NOM>_USER/_HASH, empreinte MD5
+# « apr1 ») : compte glpi-lecture, empreinte générée par le crochet stack/wud8/hook.sh.
+
+services:
+  # Nom « wud8 » et non « wud » : Swarm donne aussi au service son nom court sur lab-net, et deux
+  # services « wud » (piles lab-wud et lab-wud8) y seraient joints au hasard.
+  wud8:
+    image: ${LAB_WUD8_IMAGE:-getwud/wud:8.4.0}
+    environment:
+      TZ: Europe/Paris
+      WUD_LOG_LEVEL: info
+      WUD_AUTH_BASIC_GLPI_USER: glpi-lecture
+      WUD_AUTH_BASIC_GLPI_HASH: "${LAB_WUD8_GLPI_HASH:?empreinte absente, lancer ./lab up wud8}"
+      WUD_WATCHER_LOCAL_SOCKET: /var/run/docker.sock
+      WUD_WATCHER_LOCAL_WATCHBYDEFAULT: "false"
+      WUD_WATCHER_LOCAL_CRON: "0 */6 * * *"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - store:/store
+    ports:
+      - target: 3000
+        published: 8123
+        protocol: tcp
+        mode: ingress
+    networks:
+      default: {}
+      lab-net:
+        aliases: [wud8]
+    deploy:
+      restart_policy:
+        condition: any
+        delay: 10s
+      resources:
+        limits:
+          memory: 192M
+          cpus: "0.5"
+        reservations:
+          memory: 32M
+
+volumes:
+  store:
+
+networks:
+  default:
+    driver: overlay
+  lab-net:
+    external: true

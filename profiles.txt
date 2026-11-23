@@ -5,8 +5,11 @@
 glpi    glpi:*
 glpi12  glpi:12
 glpi11  glpi:11
+# Lot #3 : connecteurs de l'Inventaire Docker et dépôts de test (mémoire : docs/memoire.md).
+docker        portainer wud wud8 harbor registry forgejo traefik
+# Sans Harbor (le plus lourd, environ 1 Gio avec Trivy) :
+docker-leger  portainer wud wud8 registry traefik
 # Lots suivants (exemples, à décommenter quand les fichiers de stack existent) :
-# docker      portainer wud harbor forgejo
 # supervision zabbix
 # securite    wazuh
 # telephonie  freepbx
